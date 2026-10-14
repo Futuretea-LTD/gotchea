@@ -1,0 +1,41 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+# grammar WASM copied from @vscode/tree-sitter-wasm by packages/core/scripts/copy-wasm.mjs
+packages/core/wasm/
+*.tsbuildinfo
+
+# fixture repos deliberately ship node_modules/ and dist/ (scans must skip them)
+!packages/*/test/fixtures/**/node_modules/
+!packages/*/test/fixtures/**/dist/
+
+# test output
+coverage/
+.vitest/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# env
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# local gotchea state when dogfooding on this repo
+.gotchea/
+
+# release preparation notes (local only)
+.release-prep/

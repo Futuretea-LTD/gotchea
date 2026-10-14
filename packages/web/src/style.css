@@ -1,0 +1,373 @@
+/* gotchea treemap. Each state has a colour, a pattern and a text mark (! ~ ✓ –), so no
+   state depends on colour alone. Light and dark follow prefers-color-scheme. */
+:root {
+  color-scheme: light dark;
+  --bg: #fbfbfa;
+  --fg: #1d1f21;
+  --muted: #5d6166;
+  --line: #d6d8db;
+  --panel: #ffffff;
+  --focus: #1f5fd1;
+  --red: #d64545;
+  --yellow: #e2b100;
+  --green: #2e9d5b;
+  --grey: #a3a8ad;
+  --on-red: #ffffff;
+  --on-yellow: #1d1f21;
+  --on-green: #ffffff;
+  --on-grey: #1d1f21;
+  --hatch: rgb(255 255 255 / 0.35);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171a;
+    --fg: #e8e9ea;
+    --muted: #a2a7ad;
+    --line: #34383d;
+    --panel: #1d2024;
+    --focus: #7fb0ff;
+    --red: #c94545;
+    --yellow: #c9a000;
+    --green: #2f8f56;
+    --grey: #5b6066;
+    --on-grey: #f1f2f3;
+    --hatch: rgb(0 0 0 / 0.3);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+#app {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 12px 20px 40px;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.top h1 {
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.crumbs li + li::before {
+  content: "›";
+  padding: 0 6px;
+  color: var(--muted);
+}
+
+.crumbs [aria-current] {
+  font-weight: 600;
+}
+
+.live {
+  min-height: 1.4em;
+  margin: 4px 0;
+  color: var(--muted);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
+.legend strong {
+  color: var(--fg);
+}
+
+.swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4em;
+  height: 1.4em;
+  margin-right: 6px;
+  border-radius: 3px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px;
+}
+
+@media (max-width: 800px) {
+  .body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.treemap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 280px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.cell {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 2px;
+  padding: 4px 6px;
+  margin: 0;
+  border: 1px solid var(--bg);
+  border-radius: 0;
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.cell .name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.cell .meta {
+  font-size: 0.75rem;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.cell .mark {
+  font-weight: 700;
+}
+
+/* Labels sit on the solid state colour so the pattern never crosses the text. */
+.cell > span {
+  background: var(--base);
+  padding: 0 3px;
+  border-radius: 2px;
+}
+
+.cell.c-red {
+  --base: var(--red);
+}
+
+.cell.c-yellow {
+  --base: var(--yellow);
+}
+
+.cell.c-green {
+  --base: var(--green);
+}
+
+.cell.c-grey {
+  --base: var(--grey);
+}
+
+.cell:hover {
+  filter: brightness(1.08);
+}
+
+.cell.selected {
+  box-shadow: inset 0 0 0 3px var(--fg);
+}
+
+.cell:focus-visible {
+  outline-offset: -3px;
+  z-index: 1;
+}
+
+/* Colour + pattern per state (cells, legend swatches). */
+.c-red .swatch,
+.cell.c-red {
+  background: repeating-linear-gradient(45deg, var(--hatch) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(-45deg, var(--hatch) 0 2px, transparent 2px 7px), var(--red);
+  color: var(--on-red);
+}
+
+.c-yellow .swatch,
+.cell.c-yellow {
+  background: repeating-linear-gradient(0deg, var(--hatch) 0 2px, transparent 2px 8px), var(--yellow);
+  color: var(--on-yellow);
+}
+
+.c-green .swatch,
+.cell.c-green {
+  background: var(--green);
+  color: var(--on-green);
+}
+
+.c-grey .swatch,
+.cell.c-grey {
+  background: repeating-linear-gradient(135deg, var(--hatch) 0 4px, transparent 4px 10px), var(--grey);
+  color: var(--on-grey);
+}
+
+.no-area {
+  padding: 16px;
+  color: var(--muted);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left-width: 6px;
+  border-radius: 4px;
+  padding: 10px 14px;
+  align-self: start;
+  overflow-wrap: anywhere;
+}
+
+.panel.c-red {
+  border-left-color: var(--red);
+}
+
+.panel.c-yellow {
+  border-left-color: var(--yellow);
+}
+
+.panel.c-green {
+  border-left-color: var(--green);
+}
+
+.panel.c-grey {
+  border-left-color: var(--grey);
+}
+
+.panel h2 {
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+
+.panel h3 {
+  font-size: 0.9rem;
+  margin: 12px 0 4px;
+}
+
+.panel dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 0;
+}
+
+.panel dt {
+  color: var(--muted);
+}
+
+.panel dd {
+  margin: 0;
+}
+
+.commands p {
+  margin: 4px 0;
+}
+
+code,
+pre {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+}
+
+.commands code {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+button.copy {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.children table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+
+.children caption {
+  text-align: left;
+  font-weight: 600;
+  padding: 4px 0;
+}
+
+.children th,
+.children td {
+  text-align: left;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.children .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.children tr.selected td {
+  font-weight: 600;
+}
+
+.empty,
+.loading {
+  max-width: 640px;
+  padding: 24px 0;
+}
+
+.empty pre {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 10px 14px;
+}

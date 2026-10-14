@@ -1,0 +1,201 @@
+# Release: Changesets "Version Packages" PR + npm publish.
+#
+# Flow (on every push to main):
+#   select-mode ─┬─ mode=version → version : open/update the "Version Packages" PR
+#                └─ mode=publish → pack → publish : publish to npm, tag, GitHub release
+#   mode=none → nothing to do.
+#
+# This is the split-job layout recommended by Changesets for npm trusted
+# publishing (https://changesets.dev/guide/automating#trusted-publishing):
+# `id-token: write` is granted ONLY to the publish job, which runs no project
+# code (no build, no lifecycle scripts) - it just uploads pre-packed tarballs.
+#
+# Publishing tool: Changesets v3 detects pnpm and runs `pnpm pack` (pack job)
+# and `pnpm publish <tarball>` (publish job). pnpm >= 11 publishes natively
+# (it no longer shells out to the npm CLI), so no npm upgrade is needed:
+#   - `pnpm pack` rewrites `workspace:*` to the real versions.
+#   - In GitHub Actions with `id-token: write`, pnpm exchanges the OIDC token
+#     for a short-lived npm token (trusted publishing) and attaches provenance
+#     automatically (public repo + public package).
+#   - If the OIDC exchange fails (e.g. trusted publisher not configured yet),
+#     pnpm logs "Skipped OIDC" and falls back to the token in ~/.npmrc, which
+#     is only written when the NPM_TOKEN secret exists (see publish job).
+#
+# Repo setting required: Settings > Actions > General >
+#   "Allow GitHub Actions to create and approve pull requests".
+# npm setup: see .release-prep/NPM_SETUP.md.
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+# Reset permissions; each job declares exactly what it needs.
+permissions: {}
+
+# Never cancel a release mid-flight; queue runs for the same branch instead.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # pnpm 11 requires Node >= 22.13; npm trusted publishing docs require >= 22.14.
+  NODE_VERSION: 24
+
+jobs:
+  select-mode:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.select-mode.outputs.mode }}
+      publish-plan-artifact-id: ${{ steps.select-mode.outputs.publish-plan-artifact-id }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm # version from package.json "packageManager"
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false # avoid cache poisoning in release jobs
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # "version" if changesets exist, "publish" if local versions are not on
+      # npm yet, otherwise "none".
+      - name: Select Changesets mode
+        id: select-mode
+        uses: changesets/action/select-mode@v2
+
+  version:
+    if: needs.select-mode.outputs.mode == 'version'
+    needs: select-mode
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # commit version bumps + CHANGELOGs
+      pull-requests: write # open/update the "Version Packages" PR
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Runs `pnpm version-packages` (= changeset version), then commits via
+      # the GitHub API and opens/updates the PR. The "fixed" group in
+      # .changeset/config.json keeps gotchea, gotchea-core and gotchea-mcp on
+      # one shared version.
+      - name: Create "Version Packages" PR
+        uses: changesets/action/version@v2
+        with:
+          script: pnpm version-packages
+          commit-message: "chore: version packages"
+          pr-title: "chore: version packages"
+
+  pack:
+    if: needs.select-mode.outputs.mode == 'publish'
+    needs: select-mode
+    runs-on: ubuntu-latest
+    outputs:
+      pack-dir-artifact-id: ${{ steps.pack.outputs.pack-dir-artifact-id }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      # `pnpm pack` per package -> tarballs with `workspace:*` already
+      # rewritten to concrete versions; uploaded as a workflow artifact.
+      - name: Pack packages
+        id: pack
+        uses: changesets/action/pack@v2
+        with:
+          publish-plan-artifact-id: ${{ needs.select-mode.outputs.publish-plan-artifact-id }}
+
+  publish:
+    needs: pack
+    runs-on: ubuntu-latest
+    # Optional hardening: add `environment: npm` (with required reviewers) and
+    # set the same environment name in each npm trusted publisher config.
+    permissions:
+      contents: write # push git tags + create GitHub releases
+      id-token: write # npm trusted publishing (OIDC) + provenance
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Token fallback. Only if the NPM_TOKEN secret is set, write a
+      # ~/.npmrc that reads the token from NODE_AUTH_TOKEN at runtime (pnpm
+      # ignores env vars in a project .npmrc, but honours them in ~/.npmrc).
+      # Without the secret nothing is written and publishing is OIDC-only.
+      - name: Configure npm token fallback (only if NPM_TOKEN is set)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}' >> ~/.npmrc
+            echo "NPM_TOKEN secret found: token fallback enabled (OIDC is still tried first)."
+          else
+            echo "No NPM_TOKEN secret: publishing via npm trusted publishing (OIDC) only."
+          fi
+
+      # `pnpm publish <tarball> --access public` for each package not yet on
+      # npm, then pushes git tags and creates GitHub releases.
+      - name: Publish to npm
+        uses: changesets/action/publish@v2
+        with:
+          pack-dir-artifact-id: ${{ needs.pack.outputs.pack-dir-artifact-id }}
+        env:
+          # Empty when the secret is not set -> OIDC only.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,3 @@
+module.exports = function leftPad(s, n) {
+  return String(s).padStart(n);
+};

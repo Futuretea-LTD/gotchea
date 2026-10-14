@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // Node types only for the type-only import of gotchea-core's MapJson and for tests.
+    "types": ["node", "vite/client"],
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src", "test", "vite.config.ts"]
+}

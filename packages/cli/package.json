@@ -1,0 +1,64 @@
+{
+  "name": "gotchea",
+  "version": "0.0.0",
+  "description": "Power your code memory: spaced-repetition comprehension quizzes for your codebase",
+  "keywords": [
+    "ai",
+    "mcp",
+    "claude-code",
+    "codex",
+    "spaced-repetition",
+    "code-comprehension"
+  ],
+  "license": "MIT",
+  "author": "Futuretea LTD",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Futuretea-LTD/gotchea.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/Futuretea-LTD/gotchea#readme",
+  "bugs": {
+    "url": "https://github.com/Futuretea-LTD/gotchea/issues"
+  },
+  "type": "module",
+  "bin": {
+    "gotchea": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/program.d.ts",
+      "import": "./dist/program.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/program.js",
+  "types": "./dist/program.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.build.json && node scripts/copy-web.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --config ../../vitest.config.ts --project cli",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.1",
+    "commander": "^14.0.3",
+    "gotchea-core": "workspace:*",
+    "gotchea-mcp": "workspace:*",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "gotchea-web": "workspace:*"
+  }
+}

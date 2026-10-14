@@ -1,0 +1,59 @@
+{
+  "name": "gotchea-mcp",
+  "version": "0.0.0",
+  "description": "MCP server for gotchea: codebase comprehension maps and quizzes for coding agents",
+  "keywords": [
+    "ai",
+    "mcp",
+    "claude-code",
+    "codex",
+    "spaced-repetition",
+    "code-comprehension"
+  ],
+  "license": "MIT",
+  "author": "Futuretea LTD",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Futuretea-LTD/gotchea.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://github.com/Futuretea-LTD/gotchea/tree/main/packages/mcp#readme",
+  "bugs": {
+    "url": "https://github.com/Futuretea-LTD/gotchea/issues"
+  },
+  "type": "module",
+  "bin": {
+    "gotchea-mcp": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --config ../../vitest.config.ts --project mcp",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "gotchea-core": "workspace:*",
+    "zod": "^4.1.0"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "gotchea-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "gotchea treemap UI, served read-only by `gotchea serve` (bundled into the gotchea CLI, not published)",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --config ../../vitest.config.ts --project web",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "fast-check": "^4.10.2",
+    "gotchea-core": "workspace:*",
+    "happy-dom": "^21.0.1",
+    "vite": "^8.3.4"
+  }
+}

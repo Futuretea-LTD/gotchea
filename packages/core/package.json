@@ -1,0 +1,66 @@
+{
+  "name": "gotchea-core",
+  "version": "0.0.0",
+  "description": "gotchea comprehension engine: chunking, question pools and spaced-repetition scoring for codebases",
+  "keywords": [
+    "ai",
+    "mcp",
+    "claude-code",
+    "codex",
+    "spaced-repetition",
+    "code-comprehension"
+  ],
+  "license": "MIT",
+  "author": "Futuretea LTD",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Futuretea-LTD/gotchea.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/Futuretea-LTD/gotchea/tree/main/packages/core#readme",
+  "bugs": {
+    "url": "https://github.com/Futuretea-LTD/gotchea/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./internal": {
+      "types": "./dist/internal.d.ts",
+      "import": "./dist/internal.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "wasm",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node scripts/copy-wasm.mjs && tsup && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --config ../../vitest.config.ts --project core",
+    "clean": "rm -rf dist wasm"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "ignore": "^7.0.5",
+    "web-tree-sitter": "0.27.1",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@vscode/tree-sitter-wasm": "0.3.1"
+  }
+}

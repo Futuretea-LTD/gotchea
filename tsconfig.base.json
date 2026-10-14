@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    // Resolve workspace packages to their TypeScript sources during typecheck,
+    // so `pnpm typecheck` works without a prior build. Build configs reset this
+    // to read the dependency's published dist/*.d.ts instead.
+    "paths": {
+      "gotchea-core": ["./packages/core/src/index.ts"],
+      "gotchea-core/internal": ["./packages/core/src/internal.ts"],
+      "gotchea-mcp": ["./packages/mcp/src/index.ts"]
+    }
+  }
+}

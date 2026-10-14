@@ -1,0 +1,42 @@
+{
+  "name": "gotchea-workspace",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Power your code memory",
+  "type": "module",
+  "license": "MIT",
+  "author": "Futuretea LTD",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Futuretea-LTD/gotchea.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Futuretea-LTD/gotchea/issues"
+  },
+  "homepage": "https://github.com/Futuretea-LTD/gotchea#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.16.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "biome lint .",
+    "typecheck": "pnpm -r typecheck",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm -r build && changeset publish",
+    "clean": "pnpm -r clean && rm -rf coverage"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@changesets/cli": "^3.0.3",
+    "@types/node": "^20.19.0",
+    "@vitest/coverage-v8": "4.1.11",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.2",
+    "vitest": "4.1.11"
+  }
+}
