@@ -101,12 +101,21 @@ function parseHolder(raw: string): LockHolder | null {
   }
 }
 
-async function readHolder(path: string): Promise<{ holder: LockHolder | null; mtimeMs: number } | null> {
+// Windows: a lock file another process has just unlinked stays "delete pending" until
+// every open handle (say, a waiter's readFile) closes, and opening or reading it fails
+// with EPERM/EACCES rather than EEXIST/ENOENT. That is contention, not a permission problem.
+function isDeletePending(err: unknown): boolean {
+  return process.platform === 'win32' && (isErrno(err, 'EPERM') || isErrno(err, 'EACCES'));
+}
+
+async function readHolder(path: string, now: () => number = Date.now): Promise<{ holder: LockHolder | null; mtimeMs: number } | null> {
   try {
     const [raw, st] = await Promise.all([readFile(path, 'utf8'), stat(path)]);
     return { holder: parseHolder(raw), mtimeMs: st.mtimeMs };
   } catch (err) {
     if (isErrno(err, 'ENOENT')) return null;
+    // Report a fresh unknown holder so the caller backs off and retries.
+    if (isDeletePending(err)) return { holder: null, mtimeMs: now() };
     throw err;
   }
 }
@@ -135,7 +144,7 @@ async function tryCreate(path: string, holder: LockHolder): Promise<boolean> {
   try {
     fh = await open(path, 'wx');
   } catch (err) {
-    if (isErrno(err, 'EEXIST')) return false;
+    if (isErrno(err, 'EEXIST') || isDeletePending(err)) return false;
     throw err;
   }
   try {
@@ -171,12 +180,12 @@ async function unlinkRetry(path: string): Promise<void> {
 async function breakStale(path: string, holder: LockHolder, r: Resolved): Promise<boolean> {
   const breakPath = `${path}.break`;
   if (!(await tryCreate(breakPath, holder))) {
-    const b = await readHolder(breakPath);
+    const b = await readHolder(breakPath, r.now);
     if (b && r.now() - b.mtimeMs > BREAK_STALE_MS) await unlinkRetry(breakPath);
     return false;
   }
   try {
-    const current = await readHolder(path);
+    const current = await readHolder(path, r.now);
     if (current && isStale(current, r)) await unlinkRetry(path);
   } finally {
     await unlinkRetry(breakPath);
@@ -198,7 +207,7 @@ async function acquire(path: string, opts: RepoLockOptions, r: Resolved): Promis
   for (let attempt = 0; ; attempt++) {
     opts.signal?.throwIfAborted();
     if (await tryCreate(path, holder)) return holder;
-    const cur = await readHolder(path);
+    const cur = await readHolder(path, r.now);
     if (cur === null) continue;
     const waited = r.now() - started;
     if (isStale(cur, r)) {
