@@ -33,18 +33,26 @@ describe.skipIf(!built)('stdio round trip (built dist/bin.js)', () => {
   });
 
   it('completes a request/response round trip in < 100 ms', async () => {
-    await client.listTools(); // warm
-    const t0 = performance.now();
-    const { tools } = await client.listTools();
-    const listMs = performance.now() - t0;
-    expect(tools.length).toBeGreaterThanOrEqual(4);
-    expect(listMs).toBeLessThan(100);
+    // Median of several calls: one sample on a busy CI runner (Windows especially) can catch
+    // a scheduler hiccup that says nothing about the round trip itself.
+    const medianMs = async (call: () => Promise<unknown>): Promise<number> => {
+      await call(); // warm
+      const samples: number[] = [];
+      for (let i = 0; i < 5; i++) {
+        const t0 = performance.now();
+        await call();
+        samples.push(performance.now() - t0);
+      }
+      return samples.sort((a, b) => a - b)[2] as number;
+    };
 
-    const t1 = performance.now();
-    const res = await client.callTool({ name: 'get_chunk_for_file', arguments: { path: 'src/math.ts', line: 2 } });
-    const chunkMs = performance.now() - t1;
-    expect(text(res)).toContain('src/math.ts');
-    expect(chunkMs).toBeLessThan(100);
+    const { tools } = await client.listTools();
+    expect(tools.length).toBeGreaterThanOrEqual(4);
+    expect(await medianMs(() => client.listTools())).toBeLessThan(100);
+
+    const getChunk = () => client.callTool({ name: 'get_chunk_for_file', arguments: { path: 'src/math.ts', line: 2 } });
+    expect(text(await getChunk())).toContain('src/math.ts');
+    expect(await medianMs(getChunk)).toBeLessThan(100);
   });
 });
 
