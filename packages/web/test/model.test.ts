@@ -1,6 +1,107 @@
+import type { StatusJson } from 'gotchea-core';
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { closestExisting, colorCounts, commandsFor, findNode, formatDue, formatR, hashFor, idFromHash, isEmptyMap, pathTo, shellQuote } from '../src/model.js';
+import { RETENTION_SCALE, cellTone, closestExisting, colorCounts, commandsFor, findNode, formatDue, formatR, hashFor, idFromHash, isEmptyMap, pathTo, retentionTier, shellQuote, statusStats, tierRange, upFrom } from '../src/model.js';
 import { node, sampleMap } from './helpers.js';
+
+describe('retention tones', () => {
+  it('orders the scale from low to high retention', () => {
+    expect(RETENTION_SCALE).toEqual(['#FF5F2E', '#FF9B6E', '#FFC4A6', '#FFE1D3', '#FDF1EC']);
+  });
+
+  it.each([
+    [-Number.MAX_VALUE, 0], [-1, 0], [0, 0],
+    [0.2 - Number.EPSILON, 0], [0.2, 1], [0.2 + Number.EPSILON, 1],
+    [0.4 - Number.EPSILON, 1], [0.4, 2], [0.4 + Number.EPSILON, 2],
+    [0.6 - Number.EPSILON, 2], [0.6, 3], [0.6 + Number.EPSILON, 3],
+    [0.8 - Number.EPSILON, 3], [0.8, 4], [0.8 + Number.EPSILON, 4],
+    [1, 4], [2, 4], [Number.MAX_VALUE, 4],
+    [Number.NaN, 0], [Number.NEGATIVE_INFINITY, 0], [Number.POSITIVE_INFINITY, 4],
+  ])('maps R=%s to tier %s', (r, tier) => {
+    expect(retentionTier(r)).toBe(tier);
+  });
+
+  it('property: every number maps to one integer tier in the scale', () => {
+    fc.assert(fc.property(fc.double(), (r) => {
+      const tier = retentionTier(r);
+      expect(Number.isInteger(tier)).toBe(true);
+      expect(tier).toBeGreaterThanOrEqual(0);
+      expect(tier).toBeLessThanOrEqual(4);
+    }));
+  });
+
+  it('property: tiers are monotonic for every ordered R, including clamped outliers and infinities', () => {
+    // NaN has no order and its own fallback; everything else must keep the order.
+    const ordered = fc.oneof(fc.double({ noNaN: true }), fc.double({ min: -1, max: 2, noNaN: true }));
+    fc.assert(fc.property(ordered, ordered, (a, b) => {
+      expect(retentionTier(Math.min(a, b))).toBeLessThanOrEqual(retentionTier(Math.max(a, b)));
+    }));
+  });
+
+  it.each(['red', 'yellow'] as const)('%s uses retention directly without changing state or counters', (color) => {
+    const n = node({ id: 'a.ts', color, R: 0.45 });
+    const before = structuredClone(n);
+    expect(cellTone(n)).toEqual({ kind: 'scale', tier: 2 });
+    expect(n).toEqual(before);
+    expect(colorCounts(n)).toEqual({ red: color === 'red' ? 1 : 0, yellow: color === 'yellow' ? 1 : 0, green: 0, grey: 0 });
+    expect(cellTone(node({ id: 'a.ts', color, R: null }))).toEqual({ kind: 'scale', tier: 0 });
+  });
+
+  it('property: green uses retention with a minimum tier of 3', () => {
+    fc.assert(fc.property(fc.oneof(fc.double(), fc.constant(null)), (R) => {
+      const tone = cellTone(node({ id: 'a.ts', color: 'green', R }));
+      expect(tone).toEqual({ kind: 'scale', tier: Math.max(retentionTier(R ?? 0), 3) });
+    }));
+  });
+
+  it('property: grey is always outside the scale', () => {
+    fc.assert(fc.property(fc.oneof(fc.double(), fc.constant(null)), (R) => {
+      expect(cellTone(node({ id: 'a.ts', color: 'grey', R }))).toEqual({ kind: 'none' });
+    }));
+  });
+});
+
+describe('statusStats', () => {
+  const status: StatusJson = {
+    version: 1,
+    generatedAt: '2026-10-14T12:00:00.000Z',
+    scanned: true,
+    chunks: 12,
+    leaves: 8,
+    colors: { red: 2, yellow: 1, green: 3, grey: 2 },
+    due: 2,
+    questions: 24,
+  };
+
+  it('derives all four stats using all leaves as the percentage denominator', () => {
+    const before = structuredClone(status);
+    expect(statusStats(status)).toEqual({ leaves: 8, greenPercent: 37.5, dueNow: 2, questions: 24 });
+    expect(status).toEqual(before);
+  });
+
+  it.each([false, true])('returns zero stats for an empty repo (scanned=%s)', (scanned) => {
+    expect(statusStats({ ...status, scanned, chunks: 0, leaves: 0, colors: { red: 0, yellow: 0, green: 0, grey: 0 }, due: 0, questions: 0 }))
+      .toEqual({ leaves: 0, greenPercent: 0, dueNow: 0, questions: 0 });
+  });
+});
+
+describe('legend ranges and navigation', () => {
+  it('labels each tier with the R range its bucket covers', () => {
+    expect([0, 1, 2, 3, 4].map((t) => tierRange(t as 0 | 1 | 2 | 3 | 4))).toEqual(['0–19%', '20–39%', '40–59%', '60–79%', '80–100%']);
+  });
+
+  it('goes up from the container on screen: a parent for a container, the grandparent for a leaf', () => {
+    const root = sampleMap().root;
+    expect(upFrom(pathTo(root, '.'))).toBeUndefined();
+    expect(upFrom([])).toBeUndefined();
+    expect(upFrom(pathTo(root, 'src'))?.id).toBe('.');
+    expect(upFrom(pathTo(root, 'src/math.ts'))?.id).toBe('src');
+    // A selected leaf is shown inside src/math.ts, so up leaves that container.
+    expect(upFrom(pathTo(root, 'src/math.ts#clamp'))?.id).toBe('src');
+    // A top-level leaf is shown inside the root: there is nothing above.
+    expect(upFrom(pathTo(root, 'app.py'))).toBeUndefined();
+  });
+});
 
 describe('model', () => {
   const root = sampleMap().root;
@@ -35,6 +136,8 @@ describe('model', () => {
 
   it('formats R and due dates', () => {
     expect(formatR(null)).toBe('–');
+    expect(formatR(Number.NaN)).toBe('–');
+    expect(formatR(Number.POSITIVE_INFINITY)).toBe('–');
     expect(formatR(0.854)).toBe('85%');
     const now = new Date('2026-10-14T12:00:00Z');
     expect(formatDue(null, now)).toBe('–');

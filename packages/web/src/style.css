@@ -1,41 +1,60 @@
-/* gotchea treemap. Each state has a colour, a pattern and a text mark (! ~ ✓ –), so no
-   state depends on colour alone. Light and dark follow prefers-color-scheme. */
+/* gotchea treemap: one rounded card on a neutral page, a single-hue orange retention scale
+   (fills come from RETENTION_SCALE in model.ts, set through CSSOM) and a dashed neutral for
+   "no questions". Every state also has a text mark (! ~ ✓ –) in the tooltip, the cell's
+   aria-label, the legend and the table, so nothing depends on colour alone. Dark by default,
+   light under prefers-color-scheme: light; every text/background pair meets WCAG AA. */
 :root {
-  color-scheme: light dark;
-  --bg: #fbfbfa;
-  --fg: #1d1f21;
-  --muted: #5d6166;
-  --line: #d6d8db;
-  --panel: #ffffff;
-  --focus: #1f5fd1;
-  --red: #d64545;
-  --yellow: #e2b100;
-  --green: #2e9d5b;
-  --grey: #a3a8ad;
-  --on-red: #ffffff;
-  --on-yellow: #1d1f21;
-  --on-green: #ffffff;
-  --on-grey: #1d1f21;
-  --hatch: rgb(255 255 255 / 0.35);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: dark light;
+  --page: #3d3d3d;
+  --card: #282828;
+  --surface: #333333;
+  --fg: #f4f4f4;
+  --muted: #b3b3b3;
+  --line: #3e3e3e;
+  --line-strong: #5a5a5a;
+  --focus: #8ab4ff;
+  /* Text on the orange scale (≥ 5.4:1 on the darkest tier). */
+  --cell-fg: #1f1f1f;
+  --none-bg: #4a4a4a;
+  --none-fg: #f2f2f2;
+  --none-border: #9a9a9a;
+  --btn-bg: #ffffff;
+  --btn-fg: #1f1f1f;
+  --code-bg: #1e1e1e;
+  --row-selected: #323232;
+  --tip-bg: #ffffff;
+  --tip-fg: #1f1f1f;
+  --tip-muted: #555555;
+  --tip-border: transparent;
+  --tip-hover: #efefef;
+  --tip-disabled: #6b6b6b;
+  --tip-focus: #1f5fd1;
+  --shadow: 0 12px 32px rgb(0 0 0 / 0.38);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-size: 15px;
   line-height: 1.4;
 }
 
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
   :root {
-    --bg: #15171a;
-    --fg: #e8e9ea;
-    --muted: #a2a7ad;
-    --line: #34383d;
-    --panel: #1d2024;
-    --focus: #7fb0ff;
-    --red: #c94545;
-    --yellow: #c9a000;
-    --green: #2f8f56;
-    --grey: #5b6066;
-    --on-grey: #f1f2f3;
-    --hatch: rgb(0 0 0 / 0.3);
+    color-scheme: light;
+    --page: #ececec;
+    --card: #ffffff;
+    --surface: #f3f3f3;
+    --fg: #1f1f1f;
+    --muted: #5c5c5c;
+    --line: #e3e3e3;
+    --line-strong: #b8b8b8;
+    --focus: #1f5fd1;
+    --none-bg: #e9e9e9;
+    --none-fg: #2b2b2b;
+    --none-border: #8a8a8a;
+    --btn-bg: #1f1f1f;
+    --btn-fg: #ffffff;
+    --code-bg: #ffffff;
+    --row-selected: #f5f5f5;
+    --tip-border: #d4d4d4;
+    --shadow: 0 10px 28px rgb(0 0 0 / 0.14);
   }
 }
 
@@ -45,18 +64,24 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--page);
   color: var(--fg);
 }
 
 #app {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 12px 20px 40px;
+  padding: 32px 24px 48px;
 }
 
 a {
   color: inherit;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--line-strong);
+}
+
+a:hover {
+  text-decoration-color: currentColor;
 }
 
 :focus-visible {
@@ -64,16 +89,45 @@ a {
   outline-offset: 2px;
 }
 
-.top {
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- card ---- */
+
+.card {
+  background: var(--card);
+  border-radius: 32px;
+  padding: 28px 32px 32px;
+}
+
+.card-sub {
+  margin-top: 20px;
+  padding: 20px 28px 24px;
+  border-radius: 24px;
+}
+
+.card-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 16px;
 }
 
-.top h1 {
-  font-size: 1.2rem;
-  margin: 0;
+.title h1 {
+  margin: 0 0 4px;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .crumbs {
@@ -82,6 +136,8 @@ a {
   list-style: none;
   margin: 0;
   padding: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 
 .crumbs li + li::before {
@@ -91,120 +147,178 @@ a {
 }
 
 .crumbs [aria-current] {
+  color: var(--fg);
   font-weight: 600;
+}
+
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scope {
+  position: relative;
+}
+
+/* The chevron: a text glyph, since `default-src 'self'` blocks data: image URIs. */
+.scope::after {
+  content: "▾";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.scope-select {
+  appearance: none;
+  max-width: 260px;
+  padding: 8px 34px 8px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.menu-wrap {
+  position: relative;
+}
+
+.menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font: inherit;
+  font-size: 1.25rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 20;
+  min-width: 200px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--tip-bg);
+  color: var(--tip-fg);
+  border: 1px solid var(--tip-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu button:hover {
+  background: var(--tip-hover);
+}
+
+/* The page focus colour is tuned for the dark card; the menu is always white. */
+.menu button:focus-visible {
+  outline-color: var(--tip-focus);
+  outline-offset: -2px;
+  background: var(--tip-hover);
+}
+
+.menu button[aria-disabled="true"] {
+  color: var(--tip-disabled);
+  background: none;
+  cursor: default;
 }
 
 .live {
   min-height: 1.4em;
-  margin: 4px 0;
+  margin: 6px 0 10px;
   color: var(--muted);
+  font-size: 0.9rem;
 }
 
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  list-style: none;
-  padding: 0;
-  margin: 0 0 10px;
-  color: var(--muted);
-}
-
-.legend strong {
-  color: var(--fg);
-}
-
-.swatch {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.4em;
-  height: 1.4em;
-  margin-right: 6px;
-  border-radius: 3px;
-  font-weight: 700;
-  vertical-align: middle;
-}
+/* ---- treemap ---- */
 
 .body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 290px;
+  gap: 24px;
 }
 
-@media (max-width: 800px) {
+@media (max-width: 900px) {
   .body {
     grid-template-columns: 1fr;
   }
+}
+
+.treemap-wrap {
+  position: relative;
 }
 
 .treemap {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
-  min-height: 280px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  overflow: hidden;
+  min-height: 300px;
 }
 
+/* Gaps come from the layout (CELL_GAP in app.ts), not from borders. */
 .cell {
   position: absolute;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
-  gap: 2px;
-  padding: 4px 6px;
+  display: block;
   margin: 0;
-  border: 1px solid var(--bg);
-  border-radius: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--none-bg);
+  color: var(--cell-fg);
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
   text-align: left;
   overflow: hidden;
   cursor: pointer;
+  transition: filter 0.12s ease;
 }
 
 .cell .name {
-  font-weight: 600;
+  display: block;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
 }
 
-.cell .meta {
-  font-size: 0.75rem;
-  opacity: 0.85;
-  white-space: nowrap;
-}
-
-.cell .mark {
-  font-weight: 700;
-}
-
-/* Labels sit on the solid state colour so the pattern never crosses the text. */
-.cell > span {
-  background: var(--base);
-  padding: 0 3px;
-  border-radius: 2px;
-}
-
-.cell.c-red {
-  --base: var(--red);
-}
-
-.cell.c-yellow {
-  --base: var(--yellow);
-}
-
-.cell.c-green {
-  --base: var(--green);
-}
-
-.cell.c-grey {
-  --base: var(--grey);
+/* No questions yet: neutral, dashed, light text (7.9:1 on #4a4a4a). */
+.cell.none {
+  border: 1px dashed var(--none-border);
+  background: var(--none-bg);
+  color: var(--none-fg);
 }
 
 .cell:hover {
@@ -212,86 +326,218 @@ a {
 }
 
 .cell.selected {
-  box-shadow: inset 0 0 0 3px var(--fg);
+  z-index: 1;
+  box-shadow: 0 0 0 3px var(--fg);
 }
 
 .cell:focus-visible {
-  outline-offset: -3px;
-  z-index: 1;
-}
-
-/* Colour + pattern per state (cells, legend swatches). */
-.c-red .swatch,
-.cell.c-red {
-  background: repeating-linear-gradient(45deg, var(--hatch) 0 2px, transparent 2px 7px),
-    repeating-linear-gradient(-45deg, var(--hatch) 0 2px, transparent 2px 7px), var(--red);
-  color: var(--on-red);
-}
-
-.c-yellow .swatch,
-.cell.c-yellow {
-  background: repeating-linear-gradient(0deg, var(--hatch) 0 2px, transparent 2px 8px), var(--yellow);
-  color: var(--on-yellow);
-}
-
-.c-green .swatch,
-.cell.c-green {
-  background: var(--green);
-  color: var(--on-green);
-}
-
-.c-grey .swatch,
-.cell.c-grey {
-  background: repeating-linear-gradient(135deg, var(--hatch) 0 4px, transparent 4px 10px), var(--grey);
-  color: var(--on-grey);
+  z-index: 2;
 }
 
 .no-area {
+  margin: 0;
   padding: 16px;
   color: var(--muted);
 }
 
-.panel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-left-width: 6px;
-  border-radius: 4px;
+/* ---- tooltip: a white bubble above the cell (below or inside it when there is no room) ---- */
+
+.tooltip {
+  --tx: -50%;
+  --ty: calc(-100% - 12px);
+  --ax: 50%;
+  position: absolute;
+  z-index: 10;
+  width: max-content;
+  min-width: 150px;
+  max-width: min(260px, calc(100vw - 40px));
   padding: 10px 14px;
-  align-self: start;
+  border: 1px solid var(--tip-border);
+  border-radius: 12px;
+  background: var(--tip-bg);
+  color: var(--tip-fg);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  line-height: 1.35;
+  transform: translate(var(--tx), var(--ty));
+  pointer-events: none;
+}
+
+.tooltip::after {
+  content: "";
+  position: absolute;
+  left: var(--ax);
+  top: 100%;
+  transform: translateX(-50%);
+  border: 7px solid transparent;
+  border-top-color: var(--tip-bg);
+}
+
+.tooltip.below {
+  --ty: 12px;
+}
+
+.tooltip.below::after {
+  top: auto;
+  bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: var(--tip-bg);
+}
+
+.tooltip.inside {
+  --ty: -50%;
+}
+
+.tooltip.inside::after {
+  display: none;
+}
+
+.tooltip.align-start {
+  --tx: -28px;
+  --ax: 28px;
+}
+
+.tooltip.align-end {
+  --tx: calc(-100% + 28px);
+  --ax: calc(100% - 28px);
+}
+
+.tip-title {
+  margin: 0 0 6px;
   overflow-wrap: anywhere;
 }
 
-.panel.c-red {
-  border-left-color: var(--red);
+.tip-mark {
+  font-weight: 700;
 }
 
-.panel.c-yellow {
-  border-left-color: var(--yellow);
+.tip-rows {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 14px;
+  margin: 0;
 }
 
-.panel.c-green {
-  border-left-color: var(--green);
+.tip-row {
+  display: contents;
 }
 
-.panel.c-grey {
-  border-left-color: var(--grey);
+.tip-rows dt {
+  color: var(--tip-muted);
+}
+
+.tip-rows dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- legend ---- */
+
+.legend {
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 28px;
+}
+
+.scale {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scale-title {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.swatches {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.swatch {
+  display: inline-block;
+  width: 28px;
+  height: 12px;
+  border-radius: 4px;
+}
+
+.swatch.none {
+  width: 16px;
+  height: 12px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  border: 1px dashed var(--none-border);
+  background: var(--none-bg);
+}
+
+.legend-none {
+  margin: 0;
+}
+
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 18px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.count {
+  color: var(--fg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.count-item .mark {
+  font-weight: 700;
+  color: var(--fg);
+}
+
+/* ---- details panel ---- */
+
+.panel {
+  align-self: start;
+  padding: 18px 20px;
+  border-radius: 20px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
 }
 
 .panel h2 {
+  display: flex;
+  align-items: center;
+  margin: 0 0 10px;
   font-size: 1rem;
-  margin: 0 0 8px;
 }
 
 .panel h3 {
-  font-size: 0.9rem;
-  margin: 12px 0 4px;
+  margin: 14px 0 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .panel dl {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 2px 12px;
+  gap: 3px 14px;
   margin: 0;
+  font-size: 0.9rem;
 }
 
 .panel dt {
@@ -300,10 +546,31 @@ a {
 
 .panel dd {
   margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border-radius: 50%;
+  vertical-align: 0;
+}
+
+.dot.none {
+  border: 1px dashed var(--none-border);
+  background: var(--none-bg);
 }
 
 .commands p {
-  margin: 4px 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  font-size: 0.85rem;
 }
 
 code,
@@ -313,41 +580,117 @@ pre {
 }
 
 .commands code {
-  background: var(--bg);
+  padding: 2px 6px;
   border: 1px solid var(--line);
-  border-radius: 3px;
-  padding: 1px 4px;
+  border-radius: 6px;
+  background: var(--code-bg);
 }
 
 button.copy {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
   font: inherit;
   font-size: 0.8rem;
-  padding: 1px 8px;
+  font-weight: 600;
   cursor: pointer;
 }
 
-.hint {
+/* ---- stats row ---- */
+
+.stats {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.stats-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+  margin: 0;
+}
+
+@media (max-width: 700px) {
+  .stats-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Number first, label under it; the DOM keeps "label: value" for screen readers. */
+.stat {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 4px;
+}
+
+.stat dt {
   color: var(--muted);
   font-size: 0.85rem;
 }
 
+.stat dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.stat-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--cell-fg);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge.none {
+  border: 1px dashed var(--none-border);
+  background: var(--none-bg);
+  color: var(--none-fg);
+}
+
+/* ---- children table ---- */
+
 .children table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 16px;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
 }
 
 .children caption {
+  padding: 0 0 10px;
   text-align: left;
   font-weight: 600;
-  padding: 4px 0;
 }
 
 .children th,
 .children td {
+  padding: 8px 10px;
   text-align: left;
-  padding: 3px 8px;
   border-bottom: 1px solid var(--line);
+}
+
+.children th {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .children .num {
@@ -356,18 +699,92 @@ button.copy {
 }
 
 .children tr.selected td {
+  background: var(--row-selected);
   font-weight: 600;
 }
+
+.children tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* ---- empty and loading ---- */
 
 .empty,
 .loading {
   max-width: 640px;
-  padding: 24px 0;
+  padding: 12px 0 4px;
+}
+
+.empty h2 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
 }
 
 .empty pre {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 4px;
   padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+@media (forced-colors: active) {
+  .cell,
+  .swatch,
+  .badge,
+  .dot {
+    border: 1px solid CanvasText;
+    forced-color-adjust: none;
+  }
+
+  .cell.selected {
+    outline: 3px solid Highlight;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell {
+    transition: none;
+  }
+}
+
+/* The palest tiers are close to the white card: a faint inset edge (a shadow, not a border). */
+@media (prefers-color-scheme: light) {
+  .cell:not(.none),
+  .swatch:not(.none),
+  .badge:not(.none),
+  .dot:not(.none) {
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.1);
+  }
+
+  .cell.selected {
+    box-shadow: 0 0 0 3px var(--fg);
+  }
+}
+
+@media (max-width: 600px) {
+  #app {
+    padding: 16px 12px 32px;
+  }
+
+  .card {
+    padding: 20px;
+  }
+
+  .tools {
+    width: 100%;
+  }
+
+  .scope {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .scope-select {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .children {
+    overflow-x: auto;
+  }
 }

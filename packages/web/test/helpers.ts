@@ -1,4 +1,4 @@
-import type { ChunkColor, MapJson, MapNode } from 'gotchea-core';
+import type { ChunkColor, MapJson, MapNode, StatusJson } from 'gotchea-core';
 import type { FetchLike } from '../src/api.js';
 
 type NodeInput = Partial<Omit<MapNode, 'state' | 'children'>> & {
@@ -62,15 +62,32 @@ export function sampleMap(): MapJson {
   return { version: 1, repoId: 'r1', filter: null, generatedAt: '2026-10-14T12:00:00.000Z', root };
 }
 
+/** Repo-wide counters matching nothing in particular: 3 of 8 leaves green (37.5%), 2 due. */
+export function sampleStatus(): StatusJson {
+  return {
+    version: 1,
+    generatedAt: '2026-10-14T12:00:00.000Z',
+    scanned: true,
+    chunks: 12,
+    leaves: 8,
+    questions: 24,
+    due: 2,
+    colors: { grey: 2, red: 2, yellow: 1, green: 3 },
+  };
+}
+
 export interface FakeServer {
   fetch: FetchLike;
   requests: { url: string; headers: Record<string, string> }[];
   /** What the next requests answer: a map (with an ETag), not scanned, or a network failure. */
   set(answer: MapJson | 'not_scanned' | 'offline'): void;
+  /** What `/api/status` answers next: a document, or a 500. */
+  setStatus(answer: StatusJson | 'error'): void;
 }
 
-export function fakeServer(initial: MapJson | 'not_scanned' | 'offline'): FakeServer {
+export function fakeServer(initial: MapJson | 'not_scanned' | 'offline', initialStatus: StatusJson | 'error' = sampleStatus()): FakeServer {
   let answer = initial;
+  let statusAnswer = initialStatus;
   let version = 0;
   const requests: FakeServer['requests'] = [];
   return {
@@ -79,9 +96,16 @@ export function fakeServer(initial: MapJson | 'not_scanned' | 'offline'): FakeSe
       answer = a;
       version++;
     },
+    setStatus(s) {
+      statusAnswer = s;
+    },
     fetch: async (url, init) => {
       requests.push({ url, headers: init.headers });
       if (answer === 'offline') throw new TypeError('fetch failed');
+      if (url === '/api/status') {
+        if (statusAnswer === 'error') return new Response(JSON.stringify({ error: 'internal' }), { status: 500 });
+        return new Response(JSON.stringify(statusAnswer), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
       if (answer === 'not_scanned') {
         return new Response(JSON.stringify({ error: 'not_scanned', message: 'Run `gotchea scan` first.' }), { status: 404 });
       }
