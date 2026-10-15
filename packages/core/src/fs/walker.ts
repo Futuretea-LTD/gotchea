@@ -54,8 +54,11 @@ export async function walkFiles(root: string, config: GotcheaConfig, opts: WalkO
   const skipped: SkippedFile[] = [];
 
   if (useGit && config.respectGitignore) {
-    candidates = await gitListFiles(root);
-    usedGit = candidates !== null;
+    const listed = await gitListFiles(root);
+    if (listed !== null) {
+      candidates = await dropPathsThroughDirLinks(root, listed.map(toPosixPath));
+      usedGit = true;
+    }
   }
   if (candidates === null) {
     const walked = await walkDirectory(root, config.respectGitignore);
@@ -133,6 +136,40 @@ export function gitListFiles(root: string): Promise<string[] | null> {
       },
     );
   });
+}
+
+/**
+ * Drops paths below a symlinked directory. Git for Windows descends into
+ * directory junctions when listing untracked files (POSIX git lists the link
+ * itself), so a junction to an ancestor would otherwise yield an endless
+ * `loop/loop/...` listing. Matches the directory walk, which never follows them.
+ */
+export async function dropPathsThroughDirLinks(root: string, paths: readonly string[]): Promise<string[]> {
+  const memo = new Map<string, Promise<boolean>>();
+  const isLinked = (dir: string): Promise<boolean> => {
+    let hit = memo.get(dir);
+    if (!hit) {
+      const slash = dir.lastIndexOf('/');
+      const parent = slash < 0 ? Promise.resolve(false) : isLinked(dir.slice(0, slash));
+      hit = parent.then(
+        async (p) =>
+          p ||
+          (await lstat(join(root, dir)).then(
+            (st) => st.isSymbolicLink(),
+            () => false,
+          )),
+      );
+      memo.set(dir, hit);
+    }
+    return hit;
+  };
+  const keep = await Promise.all(
+    paths.map(async (path) => {
+      const slash = path.lastIndexOf('/');
+      return slash < 0 || !(await isLinked(path.slice(0, slash)));
+    }),
+  );
+  return paths.filter((_, i) => keep[i]);
 }
 
 interface IgnoreLayer {

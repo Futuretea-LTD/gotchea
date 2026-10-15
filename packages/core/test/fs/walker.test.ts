@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { resolveConfig } from '../../src/config/load.js';
 import type { GotcheaConfigInput } from '../../src/config/schema.js';
-import { walkFiles, type WalkResult } from '../../src/fs/walker.js';
+import { dropPathsThroughDirLinks, walkFiles, type WalkResult } from '../../src/fs/walker.js';
 
 const MAX = 1000;
 
@@ -218,5 +218,11 @@ describe('walkFiles specifics', () => {
       await rm(root, { recursive: true, force: true, maxRetries: 5 });
       await rm(outside, { recursive: true, force: true, maxRetries: 5 });
     }
+  });
+
+  it('drops paths listed through a directory link, as Git for Windows does for junctions', async () => {
+    // POSIX git lists `src/loop` as one entry; Git for Windows recurses into the junction.
+    const listed = ['a.ts', 'src/a.ts', 'src/loop', 'src/loop/a.ts', 'src/loop/src/loop/src/a.ts', 'src/sub/c.ts'];
+    expect(await dropPathsThroughDirLinks(gitRoot, listed)).toEqual(['a.ts', 'src/a.ts', 'src/loop', 'src/sub/c.ts']);
   });
 });
