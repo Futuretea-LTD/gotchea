@@ -14,7 +14,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true, maxRetries: 5 });
 });
 
 function hasGit(): boolean {
@@ -75,7 +75,7 @@ describe.runIf(hasGit())('findIgnoredPaths with git', () => {
       const out = await findIgnoredPaths(plain, ['.gotchea/config.json']);
       expect(out).toEqual([{ path: '.gotchea/config.json', source: '.gitignore', line: 1, pattern: '.gotchea' }]);
     } finally {
-      await rm(plain, { recursive: true, force: true });
+      await rm(plain, { recursive: true, force: true, maxRetries: 5 });
     }
   });
 });

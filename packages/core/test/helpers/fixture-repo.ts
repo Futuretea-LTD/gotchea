@@ -46,8 +46,8 @@ export async function copyFixture(name: FixtureName): Promise<FixtureRepo> {
       await write(path, text.replace(from, to));
     },
     async cleanup() {
-      await rm(root, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5 });
+      await rm(home, { recursive: true, force: true, maxRetries: 5 });
     },
   };
 }

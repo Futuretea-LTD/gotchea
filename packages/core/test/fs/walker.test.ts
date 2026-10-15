@@ -71,14 +71,18 @@ async function buildFixture(root: string, withGit: boolean): Promise<void> {
     await mkdir(dirname(abs), { recursive: true });
     await writeFile(abs, content);
   }
-  await symlink('a.ts', join(root, 'src', 'alias.ts')); // symlink to a file: listed
-  await symlink('..', join(root, 'src', 'loop')); // symlink to a dir: skipped (cycle)
-  await symlink('missing.ts', join(root, 'src', 'dangling.ts')); // broken: dropped
+  await symlink('a.ts', join(root, 'src', 'alias.ts'), 'file'); // symlink to a file: listed
+  // symlink to a dir: skipped (cycle). A junction on Windows (no privilege needed; the type is ignored elsewhere).
+  await symlink(root, join(root, 'src', 'loop'), 'junction');
+  await symlink('missing.ts', join(root, 'src', 'dangling.ts'), 'file'); // broken: dropped
   await mkdir(join(root, '.git', 'info'), { recursive: true });
   if (withGit) {
     execFileSync('git', ['init', '-q'], { cwd: root });
-    // isolate from the user's global excludes file
-    execFileSync('git', ['config', 'core.excludesFile', '/dev/null'], { cwd: root });
+    // Isolate from the user's global excludes file: an empty file inside .git/ (always
+    // excluded) works with every git build, unlike /dev/null on Windows.
+    const noExcludes = join(root, '.git', 'no-excludes');
+    await writeFile(noExcludes, '');
+    execFileSync('git', ['config', 'core.excludesFile', noExcludes], { cwd: root });
   }
   await writeFile(join(root, '.git', 'info', 'exclude'), 'local-only.ts\n');
 }
@@ -100,8 +104,8 @@ beforeAll(async () => {
   await buildFixture(plainRoot, false);
 });
 afterAll(async () => {
-  await rm(gitRoot, { recursive: true, force: true });
-  await rm(plainRoot, { recursive: true, force: true });
+  await rm(gitRoot, { recursive: true, force: true, maxRetries: 5 });
+  await rm(plainRoot, { recursive: true, force: true, maxRetries: 5 });
 });
 
 const modes: [string, () => string, boolean, boolean][] = [
@@ -175,6 +179,9 @@ describe('walkFiles specifics', () => {
       git('init', '-q');
       git('config', 'user.email', 'test@example.com');
       git('config', 'user.name', 'Test');
+      // CI runners differ in global config: no signing prompts, no CRLF conversion.
+      git('config', 'commit.gpgsign', 'false');
+      git('config', 'core.autocrlf', 'false');
       await writeFile(join(root, 'kept.ts'), 'a\n');
       await writeFile(join(root, 'gone.ts'), 'b\n');
       git('add', '.');
@@ -186,7 +193,7 @@ describe('walkFiles specifics', () => {
       expect(r.files).toEqual(['kept.ts', 'new.ts']);
       expect(r.skipped).toEqual([]);
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5 });
     }
   });
 
@@ -202,14 +209,14 @@ describe('walkFiles specifics', () => {
     try {
       await writeFile(join(outside, 'secret.ts'), 'export const key = 1;\n');
       await writeFile(join(root, 'a.ts'), 'export const a = 1;\n');
-      await symlink(join(outside, 'secret.ts'), join(root, 'leak.ts'));
+      await symlink(join(outside, 'secret.ts'), join(root, 'leak.ts'), 'file');
       if (useGitMode) execFileSync('git', ['init', '-q'], { cwd: root });
       const r = await walkFiles(root, cfg(), { useGit: useGitMode });
       expect(r.files).toEqual(['a.ts']);
       expect(r.skipped).toEqual([{ path: 'leak.ts', reason: 'outside-root' }]);
     } finally {
-      await rm(root, { recursive: true, force: true });
-      await rm(outside, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5 });
+      await rm(outside, { recursive: true, force: true, maxRetries: 5 });
     }
   });
 });

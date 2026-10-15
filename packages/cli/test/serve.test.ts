@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FsChunkStore, FsProgressStore, computeRepoId, type Chunk } from 'gotchea-core';
 import { FsQuestionStore } from 'gotchea-core/internal';
-import { STUB_COMMANDS } from '../src/commands/stubs.js';
 import { forbiddenKeyIn, SERVE_FORBIDDEN_KEYS } from '../src/serve/leak-guard.js';
 import { startServer, type RunningServer } from '../src/serve/server.js';
 import { NOW, SentinelProvider, allKeys, answerDataIn, createSandbox, question, type Sandbox } from './helpers.js';
@@ -372,7 +371,6 @@ describe('gotchea serve: command', () => {
   });
 
   it('is a real command now, not a stub', async () => {
-    expect(STUB_COMMANDS.map((c) => c.name)).not.toContain('serve');
     const help = await s.gotchea(['--help']);
     expect(help.stdout).toMatch(/serve \[options\] \[path\]/);
     expect(help.stdout).not.toContain('not implemented');

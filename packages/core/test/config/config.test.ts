@@ -11,7 +11,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'gotchea-config-'));
 });
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true, maxRetries: 5 });
 });
 
 async function writeRawConfig(text: string): Promise<void> {

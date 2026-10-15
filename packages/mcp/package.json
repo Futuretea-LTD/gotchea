@@ -36,6 +36,7 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
+    "!dist/**/*.map",
     "README.md",
     "LICENSE"
   ],
@@ -49,7 +50,7 @@
     "build": "tsup && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --config ../../vitest.config.ts --project mcp",
-    "clean": "rm -rf dist"
+    "clean": "node -e \"for (const d of ['dist']) require('node:fs').rmSync(d, { recursive: true, force: true })\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

@@ -39,7 +39,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const p of spawned) if (p.exitCode === null) p.kill('SIGKILL');
-  await rm(outDir, { recursive: true, force: true });
+  await rm(outDir, { recursive: true, force: true, maxRetries: 5 });
 });
 
 const freshHome = () => mkdtemp(join(tmpdir(), 'gotchea-lock-home-'));
@@ -60,6 +60,21 @@ const whenLocked = (child: ChildProcess): Promise<void> =>
     child.on('close', () => reject(new Error('holder exited before locking')));
   });
 
+/** Resolves when the child prints `ready` (counter mode waits for `<counterFile>.go` after that). */
+const whenReady = (child: ChildProcess): Promise<void> =>
+  new Promise((resolve, reject) => {
+    child.stdout!.on('data', (d: Buffer) => d.toString().includes('ready') && resolve());
+    child.on('close', () => reject(new Error('worker exited before it was ready')));
+  });
+
+/** Runs counter workers that all start at once, whatever their start-up times. */
+async function counterWorkers(n: number, args: string[], counterFile: string): Promise<{ code: number | null; stderr: string }[]> {
+  const runs = Array.from({ length: n }, () => run(['counter', ...args]));
+  await Promise.all(runs.map((r) => whenReady(r.child)));
+  await writeFile(`${counterFile}.go`, '');
+  return Promise.all(runs.map((r) => r.done));
+}
+
 async function counterRun(useLock: boolean, procs: number, iterations: number): Promise<{ counter: number; log: string[]; codes: (number | null)[]; stderr: string }> {
   const home = await freshHome();
   const dir = await mkdtemp(join(tmpdir(), 'gotchea-lock-ctr-'));
@@ -67,11 +82,11 @@ async function counterRun(useLock: boolean, procs: number, iterations: number): 
   const logFile = join(dir, 'log');
   await writeFile(counterFile, '0');
   await writeFile(logFile, '');
-  const results = await Promise.all(Array.from({ length: procs }, () => run(['counter', REPO, home, counterFile, logFile, String(iterations), useLock ? 'lock' : 'nolock']).done));
+  const results = await counterWorkers(procs, [REPO, home, counterFile, logFile, String(iterations), useLock ? 'lock' : 'nolock'], counterFile);
   const log = (await readFile(logFile, 'utf8')).trim().split('\n');
   const out = { counter: Number(await readFile(counterFile, 'utf8')), log, codes: results.map((r) => r.code), stderr: results.map((r) => r.stderr).join('') };
-  await rm(dir, { recursive: true, force: true });
-  await rm(home, { recursive: true, force: true });
+  await rm(dir, { recursive: true, force: true, maxRetries: 5 });
+  await rm(home, { recursive: true, force: true, maxRetries: 5 });
   return out;
 }
 
@@ -137,7 +152,7 @@ describe('no lost or corrupt progress writes (real scoring path, concurrent CLI-
     expect(await inspectRepoLock(REPO, env)).toBeNull();
     const leftovers = (await readdir(userPaths(REPO, env).repoDir)).filter((n) => n.endsWith('.tmp') || n.startsWith('.lock'));
     expect(leftovers).toEqual([]);
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 5 });
   }, 120_000);
 });
 
@@ -159,7 +174,7 @@ describe('stale locks and timeouts with real processes', () => {
     expect(out).toBe('acquired');
     expect(Date.now() - t0).toBeLessThan(2_000);
     expect(await inspectRepoLock(REPO, env)).toBeNull();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 5 });
   }, 30_000);
 
   it('a live holder makes a second process time out with a typed error naming the holder; it succeeds after release', async () => {
@@ -193,7 +208,7 @@ describe('stale locks and timeouts with real processes', () => {
     holder.child.kill('SIGKILL');
     await holder.done;
     expect(await withRepoLock(REPO, async () => 'ok', { env, timeoutMs: 2_000 })).toBe('ok');
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 5 });
   }, 30_000);
 
   it('a waiting process takes over once the holder dies mid-wait', async () => {
@@ -204,7 +219,7 @@ describe('stale locks and timeouts with real processes', () => {
     setTimeout(() => holder.child.kill('SIGKILL'), 200);
     // Waits ~200 ms, then breaks the dead holder's lock.
     expect(await withRepoLock(REPO, async () => 'got it', { env, timeoutMs: 10_000 })).toBe('got it');
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 5 });
   }, 30_000);
 
   it('two processes racing to break one stale lock both finish, and exactly one holds it at a time', async () => {
@@ -219,11 +234,11 @@ describe('stale locks and timeouts with real processes', () => {
     const logFile = join(tmp, 'log');
     await writeFile(counterFile, '0');
     await writeFile(logFile, '');
-    const rs = await Promise.all(Array.from({ length: 4 }, () => run(['counter', REPO, home, counterFile, logFile, '10', 'lock']).done));
+    const rs = await counterWorkers(4, [REPO, home, counterFile, logFile, '10', 'lock'], counterFile);
     expect(rs.map((r) => r.code)).toEqual([0, 0, 0, 0]);
     expect(await readFile(counterFile, 'utf8')).toBe('40');
     expect(await inspectRepoLock(REPO, env)).toBeNull();
-    await rm(tmp, { recursive: true, force: true });
-    await rm(home, { recursive: true, force: true });
+    await rm(tmp, { recursive: true, force: true, maxRetries: 5 });
+    await rm(home, { recursive: true, force: true, maxRetries: 5 });
   }, 60_000);
 });

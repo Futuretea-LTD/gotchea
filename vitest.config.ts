@@ -1,20 +1,22 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
-const pkg = (name: string) => fileURLToPath(new URL(`./packages/${name}`, import.meta.url));
+// Built from URLs, never by string concatenation: on Windows a native `C:\...` path with
+// `/src/...` appended would mix separators.
+const pkg = (name: string, file?: string) => fileURLToPath(new URL(`./packages/${name}${file ? `/${file}` : ''}`, import.meta.url));
 
 // Tests import workspace packages from source, never from dist.
 const alias = {
   // Before 'gotchea-core': alias keys match by prefix.
-  'gotchea-core/internal': `${pkg('core')}/src/internal.ts`,
-  'gotchea-core': `${pkg('core')}/src/index.ts`,
-  'gotchea-mcp': `${pkg('mcp')}/src/index.ts`,
+  'gotchea-core/internal': pkg('core', 'src/internal.ts'),
+  'gotchea-core': pkg('core', 'src/index.ts'),
+  'gotchea-mcp': pkg('mcp', 'src/index.ts'),
 };
 
 export default defineConfig({
   test: {
     // Tests load the grammars from packages/core/wasm/, exactly like the shipped package.
-    globalSetup: [`${pkg('core')}/scripts/copy-wasm.mjs`],
+    globalSetup: [pkg('core', 'scripts/copy-wasm.mjs')],
     projects: ['core', 'cli', 'mcp', 'web'].map((name) => ({
       resolve: { alias },
       test: {

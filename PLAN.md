@@ -260,7 +260,7 @@ Module hash = sha256 of the sorted child `id:hash` pairs. Bumping `n1` forces a 
 
 **Future (designed for now, not built):**
 - **Claude Code plugin:** `/gotchea:quiz` and `/gotchea:map`, a skill, and a PostToolUse `Edit|Write` hook that calls `gotchea which` (§7).
-- **Codex:** `config.toml` `mcp_servers.gotchea = { command = "npx", args = ["-y", "gotchea-mcp"] }` plus an AGENTS.md snippet.
+- **Codex:** `config.toml` `mcp_servers.gotchea = { command = "npx", args = ["-y", "gotchea", "mcp"] }` plus an AGENTS.md snippet.
 - **Progress export:** `gotchea export --progress` → `{ schema: "gotchea.progress-export/v1", repoId, exportedAt, alias?, chunks: [{ id, contentHash, S, lastReviewedAt, R }] }`. It is opt-in, contains no history details or answers, and is meant for Orchestea.
 - **Non-code chunkers:** implement `Chunker` (e.g. `markdown`, `openapi`) and supply per-chunker question types and prompt templates.
 

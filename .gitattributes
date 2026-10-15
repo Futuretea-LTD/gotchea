@@ -1,0 +1,19 @@
+# LF everywhere, whatever core.autocrlf says: test fixtures are compared byte for byte
+# (line numbers, content hashes, exact CLI output), so a CRLF checkout on Windows would
+# change what the tests see.
+* text=auto eol=lf
+
+# Binary assets: never touch their bytes.
+*.wasm binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.pyc binary
+*.gz binary
+*.tgz binary
+*.zip binary

@@ -13,7 +13,7 @@
     "dev": "vite",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --config ../../vitest.config.ts --project web",
-    "clean": "rm -rf dist"
+    "clean": "node -e \"for (const d of ['dist']) require('node:fs').rmSync(d, { recursive: true, force: true })\""
   },
   "devDependencies": {
     "fast-check": "^4.10.2",

@@ -1,7 +1,7 @@
 // Child-process worker for lock-concurrency.test.ts (bundled with esbuild at test time; never run by vitest).
 // Modes: `counter` (read-modify-write a counter file under the lock), `score` (the real quiz scoring path),
 // `hold` (take the lock and sit on it until killed).
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { defaultConfig } from '../../src/config/load.js';
 import { scoreSession, type Session } from '../../src/quiz/session.js';
 import { withRepoLock } from '../../src/store/repo-lock.js';
@@ -12,6 +12,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const stamp = () => process.hrtime.bigint().toString();
 
 async function counter(counterFile: string, logFile: string, iterations: number, useLock: boolean): Promise<void> {
+  // Start barrier: process start-up (slow and uneven on Windows) must not serialise the workers.
+  process.stdout.write('ready\n');
+  while (!existsSync(`${counterFile}.go`)) await sleep(2);
   for (let i = 0; i < iterations; i++) {
     const body = async () => {
       appendFileSync(logFile, `${stamp()} enter ${process.pid}\n`);

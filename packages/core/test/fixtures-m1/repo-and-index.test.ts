@@ -62,8 +62,10 @@ describe('repoId', () => {
     const a = await fixture('ts-basic');
     const b = await fixture('ts-basic');
     await git(b.root, 'init', '-q');
-    expect(await computeRepoId(a.root)).toBe(repoIdFromString(await realpath(a.root)));
-    expect(await computeRepoId(b.root)).toBe(repoIdFromString(await realpath(b.root)));
+    // computeRepoId hashes the real path with `/` separators (the same id on every OS).
+    const posixReal = async (p: string) => (await realpath(p)).replace(/\\/g, '/');
+    expect(await computeRepoId(a.root)).toBe(repoIdFromString(await posixReal(a.root)));
+    expect(await computeRepoId(b.root)).toBe(repoIdFromString(await posixReal(b.root)));
     expect(await computeRepoId(a.root)).not.toBe(await computeRepoId(b.root));
     // Stable across calls.
     expect(await computeRepoId(a.root)).toBe(await computeRepoId(a.root));

@@ -23,8 +23,9 @@ beforeAll(async () => {
   s = await createSandbox();
   web = await makeWebRoot();
   // Symlinks inside the web root that point outside it.
-  await symlink(join(web.base, 'secret.txt'), join(web.dir, 'assets', 'leak.txt'));
-  await symlink(web.base, join(web.dir, 'out'));
+  await symlink(join(web.base, 'secret.txt'), join(web.dir, 'assets', 'leak.txt'), 'file');
+  // A junction on Windows (no privilege needed); the type is ignored elsewhere.
+  await symlink(web.base, join(web.dir, 'out'), 'junction');
   await writeFile(join(web.dir, 'assets', 'ok.txt'), 'ok');
   await s.gotchea(['init']);
   expect((await s.gotchea(['scan'])).code).toBe(0);
@@ -96,6 +97,36 @@ describe('gotchea serve: security', () => {
       expect(r.body, p).not.toContain(OUTSIDE_SECRET);
     }
     expect((await raw(port, '/%zz')).status).toBe(400);
+  });
+
+  it('rejects Windows path forms (drive letters, trailing dots and spaces, encoded absolute paths)', async () => {
+    // Win32 path normalisation strips trailing dots and spaces from segments, so `.. ` or
+    // `...` may act as `..` there; the real-path containment check must still hold. Some of
+    // these are harmless SPA routes elsewhere, so the shell is an acceptable answer too.
+    const attacks = [
+      '/%2e%2e%20/secret.txt',
+      '/%2e%2e%2e/secret.txt',
+      '/%2e%2e./package.json',
+      '/assets/..%20/..%20/secret.txt',
+      '/C:/Windows/win.ini',
+      '/C:%5cWindows%5cwin.ini',
+      `/${encodeURIComponent(join(web.base, 'secret.txt'))}`,
+      '/index.html::$DATA',
+    ];
+    for (const p of attacks) {
+      const r = await raw(port, p);
+      expect(r.body, p).not.toContain(OUTSIDE_SECRET);
+      if (r.status === 200) expect(r.body, p).toBe(INDEX_HTML);
+      else expect([400, 403, 404], p).toContain(r.status);
+    }
+  });
+
+  it('never resolves Windows device names, data streams or trailing dots and spaces on disk', async () => {
+    // On Windows these would open a device (COM1), a data stream or `app.js` itself.
+    for (const p of ['/COM1', '/assets/nul.js', '/aux', '/CONIN$', '/assets/app.js.', '/assets/app.js%20', '/assets/app.js::$DATA', '/assets/app.js:x']) {
+      expect(await raw(port, p), p).toMatchObject({ status: 200, body: INDEX_HTML });
+    }
+    expect((await raw(port, '/assets/app.js')).body).not.toBe(INDEX_HTML);
   });
 
   it('refuses symlinks that leave the web root', async () => {

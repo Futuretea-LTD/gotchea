@@ -7,8 +7,9 @@ Thanks for helping out! This is a pnpm monorepo:
 | `packages/cli` | `gotchea` | CLI (`npx gotchea`) |
 | `packages/core` | `gotchea-core` | Comprehension engine (chunking, scoring, stores) |
 | `packages/mcp` | `gotchea-mcp` | MCP server |
+| `packages/web` | `gotchea-web` (private) | Treemap UI for `gotchea serve`, bundled into the CLI |
 
-`cli` and `mcp` depend on `core`. `core` never imports from them.
+`cli`, `mcp` and `web` depend on `core`. `core` never imports from them. Coding agents should also read [AGENTS.md](./AGENTS.md).
 
 ## Prerequisites
 
@@ -47,6 +48,33 @@ Run these from the repository root:
 | `pnpm typecheck` | Type-checks every package |
 
 Before you open a PR, make sure `pnpm build`, `pnpm test`, `pnpm lint` and `pnpm typecheck` all pass.
+
+## Testing local tarballs
+
+To check what users will actually install (bundled WASM grammars, the web UI, rewritten `workspace:*` dependencies), pack the three published packages and install them into a throwaway project outside the repo:
+
+```sh
+pnpm build
+T=$(mktemp -d)
+for p in core mcp cli; do (cd packages/$p && pnpm pack --pack-destination "$T/tarballs"); done
+mkdir "$T/consumer" && cd "$T/consumer"
+npm init -y >/dev/null
+npm install "$T"/tarballs/*.tgz
+```
+
+Then run the installed CLI from inside a test repository, so `.gotchea/` is created there and not in the consumer project:
+
+```sh
+cd /path/to/some/repo
+npx --prefix "$T/consumer" gotchea init
+npx --prefix "$T/consumer" gotchea scan
+npx --prefix "$T/consumer" gotchea map
+npx --prefix "$T/consumer" gotchea mcp    # waits for a client on stdio; stdout must carry only JSON-RPC (Ctrl-D exits)
+```
+
+**Why `--prefix`:** with npm 11, `npx gotchea` no longer picks up a `gotchea` bin from your `PATH` or from another directory's `node_modules`. Before the package is published, a plain `npx gotchea` from the test repository goes to the registry and fails with `E404`. `npx --prefix <consumer>` resolves the bin from the consumer's `node_modules` while the working directory stays the test repository. (Running `node "$T/consumer/node_modules/gotchea/dist/index.js" …` works too.)
+
+Delete `$T` when you are done. Never `npm publish` these tarballs.
 
 ## Changesets
 

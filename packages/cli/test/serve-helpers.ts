@@ -59,5 +59,5 @@ export async function makeWebRoot(opts: { index?: boolean } = {}): Promise<WebRo
   await writeFile(join(dir, 'assets', 'app.js'), APP_JS);
   await writeFile(join(base, 'package.json'), JSON.stringify({ name: OUTSIDE_SECRET }));
   await writeFile(join(base, 'secret.txt'), OUTSIDE_SECRET);
-  return { base, dir, cleanup: () => rm(base, { recursive: true, force: true }) };
+  return { base, dir, cleanup: () => rm(base, { recursive: true, force: true, maxRetries: 5 }) };
 }

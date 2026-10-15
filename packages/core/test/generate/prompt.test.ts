@@ -85,7 +85,7 @@ describe('prompt numbering', () => {
       expect(code.lineCount).toBe(5);
       expect(numberedRows(code.numbered)).toEqual(CLAMP.map((l, i) => [i + 1, l]));
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5 });
     }
   });
 
@@ -155,8 +155,8 @@ describe('prompt context', () => {
       expect(user).toMatch(/language: tr\.$/);
       expect(renderHostInstructions(task)).toContain('"lang": "tr"');
     } finally {
-      await rm(root, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5 });
+      await rm(home, { recursive: true, force: true, maxRetries: 5 });
     }
   });
 });

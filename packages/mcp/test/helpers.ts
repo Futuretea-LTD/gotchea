@@ -64,8 +64,8 @@ export async function createRepo(): Promise<{ root: string; home: string; env: N
     home,
     env: { ...process.env, GOTCHEA_HOME: home },
     cleanup: async () => {
-      await rm(root, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 5 });
+      await rm(home, { recursive: true, force: true, maxRetries: 5 });
     },
   };
 }

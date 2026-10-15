@@ -9,7 +9,6 @@ import { quizCommand, type QuizDeps, type QuizOptions } from './commands/quiz.js
 import { scanCommand, type ScanOptions } from './commands/scan.js';
 import { serveCommand, type ServeDeps, type ServeOptions } from './commands/serve.js';
 import { statusCommand, type StatusOptions } from './commands/status.js';
-import { STUB_COMMANDS, stubCommand } from './commands/stubs.js';
 import { CliError, createContext, processIo, type CliIo, type CommandContext, type GlobalOptions } from './context.js';
 
 export { CliError, processIo, type CliIo } from './context.js';
@@ -110,15 +109,6 @@ export function createProgram(io: CliIo = processIo(), deps: ProgramDeps = {}): 
       await startStdioServer({ root: resolve(io.cwd, cwd ?? '.') });
     });
 
-  for (const stub of STUB_COMMANDS) {
-    const cmd = program.command(stub.args ? `${stub.name} ${stub.args}` : stub.name);
-    cmd
-      .description(`${stub.description} (not implemented yet, ${stub.milestone})`)
-      .allowUnknownOption()
-      .allowExcessArguments()
-      .action(action((ctx) => stubCommand(ctx, stub)));
-  }
-
   return program;
 }
 
@@ -129,8 +119,9 @@ export async function run(argv: readonly string[], io: CliIo = processIo(), deps
     await program.parseAsync([...argv], { from: 'user' });
     return 0;
   } catch (err) {
-    // Help, version and usage errors were already printed by commander.
-    if (err instanceof CommanderError) return err.exitCode;
+    // Help, version and usage errors were already printed by commander. Commander exits 1 on
+    // usage errors; ours is 2, the same as the option checks inside the commands.
+    if (err instanceof CommanderError) return err.exitCode === 0 ? 0 : 2;
     const colors = pc.createColors(io.color && !argv.includes('--no-color'));
     const known = err instanceof CliError || err instanceof ConfigError;
     const message = err instanceof Error ? err.message : String(err);

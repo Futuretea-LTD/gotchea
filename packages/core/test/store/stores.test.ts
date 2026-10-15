@@ -24,8 +24,8 @@ beforeEach(async () => {
   env = { GOTCHEA_HOME: home };
 });
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
-  await rm(home, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true, maxRetries: 5 });
+  await rm(home, { recursive: true, force: true, maxRetries: 5 });
 });
 
 const REPO = '0123456789abcdef';

@@ -15,7 +15,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await fx.cleanup();
-  await rm(teammateHome, { recursive: true, force: true });
+  await rm(teammateHome, { recursive: true, force: true, maxRetries: 5 });
 });
 
 const passed = (hash: string): Progress => ({

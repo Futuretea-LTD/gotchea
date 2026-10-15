@@ -42,6 +42,12 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
 const ALLOW = 'GET, HEAD';
 const MAX_FILTER = 4096;
 const MISSING_ASSETS = 'web assets are missing; rebuild gotchea (pnpm build)';
+/**
+ * Segments Windows reinterprets: `name:stream` (alternate data streams), device names
+ * (`CON`, `COM1`, ... with any extension) and trailing dots or spaces, which Win32 strips.
+ * No built asset looks like this, so they get the app shell without touching the disk.
+ */
+const WIN32_SPECIAL_SEGMENT = /:|[. ]$|^(?:con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)(?:\..*)?$/i;
 const JSON_TYPE = 'application/json; charset=utf-8';
 const TEXT_TYPE = 'text/plain; charset=utf-8';
 
@@ -188,7 +194,7 @@ async function serveStatic(webRoot: string, path: string): Promise<Reply> {
 
   const root = await realpath(webRoot).catch(() => null);
   if (!root) return text(500, MISSING_ASSETS);
-  if (segments.length === 0) return serveIndex(root);
+  if (segments.length === 0 || segments.some((seg) => WIN32_SPECIAL_SEGMENT.test(seg))) return serveIndex(root);
   // Real paths, so a symlink inside webRoot cannot point outside it.
   const real = await realpath(join(root, ...segments)).catch(() => null);
   if (real === null) return serveIndex(root);

@@ -7,39 +7,43 @@
 > [!NOTE]
 > The name is **`gotchea`**, not `gotcha`. Watch for it in `npx gotchea`, in MCP configs and on npm.
 
-<!-- TODO: demo GIF -->
-![gotchea demo](docs/demo.gif)
+<!--
+  Demo GIF: not recorded yet. Record it from docs/demo.tape (`vhs docs/demo.tape`), then uncomment:
+  ![gotchea demo](docs/demo.gif)
+-->
 
-> **Status: early development.** `init`, `scan`, `map`, `status`, `generate`, `quiz` and `serve` work today. See [PLAN.md](./PLAN.md) for the roadmap.
+## Quick start
 
-## Quick start (30 seconds)
+Run these from the root of any TypeScript, JavaScript or Python repository. Node.js >= 20 is all you need.
 
-Run these from the root of any TypeScript, JavaScript or Python repository:
-
-```sh
-npx gotchea init    # creates .gotchea/ (config + questions directory)
-npx gotchea scan    # chunks the repo into .gotchea/chunks.json
-npx gotchea map     # shows the comprehension heat map
-```
-
-Useful variations:
+### 1. Init
 
 ```sh
-npx gotchea map src/auth                          # only one directory, file or chunk
-npx gotchea map src/auth/session.ts#SessionStore  # a single symbol
-npx gotchea map --json                            # machine-readable output
-npx gotchea --cwd ../other-repo scan              # run against another directory
+npx gotchea init
 ```
 
-### Generate questions
+Creates `.gotchea/` with the default `config.json` and an empty `questions/` directory, and warns you if git ignores it. Commit `.gotchea/`: it holds shared state (config, chunks, questions). Your personal progress is stored outside the repo in `~/.gotchea` (override with `GOTCHEA_HOME`) and is never committed.
 
-`gotchea generate` writes multiple-choice questions for the chunks that need them most, through an LLM provider. Chunks with no questions come first, then the most imported ones, then the biggest gap (the same order as the MCP tool `get_generation_tasks`). Each batch is validated before it is saved, and rejected items are retried once.
+### 2. Scan
+
+```sh
+npx gotchea scan          # chunks the repo into .gotchea/chunks.json
+npx gotchea scan --json   # the same summary as JSON
+```
+
+Run it again after you or a teammate change code: it detects added, changed, moved and removed chunks, marks questions for changed code as stale and decays your progress in proportion to the change.
+
+### 3. Generate questions
+
+Each leaf chunk needs multiple-choice questions before you can be quizzed on it. There are two ways to write them.
+
+**API-key mode (the CLI calls an LLM):**
 
 ```sh
 export ANTHROPIC_API_KEY=...                       # default provider: anthropic (claude-sonnet-5-5)
 npx gotchea generate                               # up to 10 chunks (generate.maxChunksPerRun)
 npx gotchea generate --chunk src/math.ts#clamp     # one leaf chunk
-npx gotchea generate --lang tr                     # question language (default questions.lang, en)
+npx gotchea generate --limit 3 --lang tr           # fewer chunks, another question language
 npx gotchea generate --verify                      # blind-verify each question; disagreements are flagged
 npx gotchea generate --dry-run                     # show what would be requested, call no provider
 npx gotchea generate --json                        # counts and reason codes as JSON
@@ -51,39 +55,83 @@ npx gotchea generate --json                        # counts and reason codes as 
 | `openai` | `OPENAI_API_KEY` (optional `OPENAI_BASE_URL`) | required: `--model` or `provider.models.openai` |
 | `openai-compatible` | optional `OPENAI_COMPAT_API_KEY`; base URL from `OPENAI_COMPAT_BASE_URL` or `provider.baseUrl` (default `http://localhost:11434/v1`) | required: `--model` or `provider.models["openai-compatible"]` |
 
-The output is one line per chunk (`✓ src/math.ts  3 saved · 1 rejected (length_skew) · 0 flagged`) plus totals. It never prints a question, its options or its answer, so you can still take the quiz afterwards. Questions are stored against the chunk's current content hash, with line references relative to the chunk, so they survive the code moving and go stale when it changes. A missing key exits with code 2; no key is needed if you generate from your coding agent through MCP instead (below).
+Chunks with no questions come first, then the most imported ones, then the biggest gap. Each batch is validated (four distinct options, no answer leaks or length skew, line citations within the chunk, no duplicates) before it is saved, and rejected items are retried once. The output is one line per chunk (`✓ src/math.ts  3 saved · 1 rejected (length_skew) · 0 flagged`) plus totals. It never prints a question, its options or its answer, so you can still take the quiz afterwards. A missing key exits with code 2.
 
-### Web treemap
+**Host-agent mode (your coding agent writes them, no API key):** connect the [MCP server](#use-it-from-your-coding-agent-mcp) and ask your agent to call `get_generation_tasks`, write the questions, and call `save_questions` for each task. The same validator runs on the server.
+
+> [!WARNING]
+> **Keep the answer key away from the agent that quizzes you.** In host mode the agent that writes the questions also writes their answers, and those stay in its context. Generate questions in a **subagent or a separate session**, never in the conversation you take the quiz in. Guides: [Claude Code](docs/claude-code.md) · [Codex](docs/codex.md).
+
+### 4. Quiz
 
 ```sh
-npx gotchea serve                  # http://127.0.0.1:4477/ and opens your browser
-npx gotchea serve --port 5000 --no-open
+npx gotchea quiz                        # the chunk that most needs review in the whole repo
+npx gotchea quiz src/auth               # the best chunk under a directory or file
+npx gotchea quiz 'src/math.ts#clamp'    # one leaf chunk (id or alias)
+npx gotchea quiz --count 3 --lang tr --new
 ```
 
-`gotchea serve` shows the map as a treemap: area is lines of code, color is the state (the table under [Colors](#colors)). Click a module or file to drill in, use the breadcrumb or the back button to go up, or move with the arrow keys, Enter and Backspace. The side panel shows a chunk's numbers and the `gotchea quiz <id>` (or `gotchea generate --chunk <id>`) command to copy. The page is read-only: quizzes stay in your terminal or your coding agent. It refreshes by itself every 3 seconds. The server listens on 127.0.0.1 only, accepts only `localhost`/`127.0.0.1` Host headers, and never sends question text or answers.
+The quiz runs in your terminal (it needs a TTY). Pick an answer with the arrow keys and Enter; after each answer you see whether it was right, the correct option, the explanation and the line references. After the last question you get pass or fail, the chunk's color change and a mini heat map. To pass you need 75% correct (`quiz.passRatio`). An unfinished quiz is offered for resume next time (`--new` starts fresh), and Ctrl-C abandons it without scoring. If the chunk has too few questions, `quiz` offers to run `generate` for it.
 
-Commit `.gotchea/`, because it holds shared state (config, chunks, questions). Your personal progress is stored outside the repo in `~/.gotchea` (you can override this with `GOTCHEA_HOME`) and is never committed.
+### 5. Map and serve
+
+```sh
+npx gotchea map                                   # the comprehension heat map in the terminal
+npx gotchea map src/auth                          # only one directory, file or chunk
+npx gotchea map src/auth/session.ts#SessionStore  # a single symbol
+npx gotchea map --json                            # machine-readable output
+npx gotchea status                                # chunk and question counts, reviews due, color distribution
+npx gotchea serve                                 # web treemap on http://127.0.0.1:4477/
+```
+
+`gotchea serve` shows the map as a treemap: area is lines of code, color is the state (see [Colors](#colors)). Click a module or file to drill in, use the breadcrumb or the back button to go up, or move with the arrow keys, Enter and Backspace. The side panel shows a chunk's numbers and the `gotchea quiz <id>` (or `gotchea generate --chunk <id>`) command to copy. The page is read-only: quizzes stay in your terminal or your coding agent. It refreshes by itself every 3 seconds. The server listens on 127.0.0.1 only, accepts only `localhost`/`127.0.0.1` Host headers, and never sends question text or answers.
+
+## Commands
+
+Every command accepts the global options `--cwd <dir>` (run as if started in `<dir>`) and `--no-color`, plus `-h, --help` and `-V, --version`.
+
+| Command | Options | What it does |
+|---|---|---|
+| `init` | `-f, --force` | Create `.gotchea/` with the default config and the questions directory. `--force` resets an existing config to the defaults. |
+| `scan` | `--json` | Chunk the repository and update `.gotchea/chunks.json`, stale questions and progress decay. |
+| `status` | `--json` | Show tracked chunks, questions, what is due and the color distribution. |
+| `map [path]` | `--json` | Show the heat map (repo > module > file > symbol), optionally for one directory, file or chunk id. |
+| `generate` | `--chunk <id>` `--provider <name>` `--model <id>` `--lang <code>` `--limit <n>` `--verify` / `--no-verify` `--dry-run` `--json` | Generate questions with an LLM provider for the chunks that need them most. |
+| `quiz [target]` | `--count <n>` (1–10) `--lang <code>` `--new` | Quiz yourself on a chunk: the one that most needs review under `target`, or the named leaf. |
+| `serve [path]` | `--port <n>` (default 4477, 0 = any free port) `--no-open` | Serve the read-only web heat map on 127.0.0.1 until Ctrl+C. |
+| `mcp` | | Start the MCP server on stdio (for Claude Code, Codex and other MCP clients). |
+
+Exit codes: 0 success, 1 a command was refused or failed (for example nothing to quiz, or an invalid `.gotchea/config.json`), 2 usage errors (unknown commands or options, invalid option values, a missing provider API key).
 
 ## Use it from your coding agent (MCP)
 
-The MCP server gives your coding agent access to the comprehension map and lets it write the quiz questions itself, with no API key. None of the tools returns question answers:
+The MCP server gives your coding agent the comprehension map, lets it write quiz questions with no API key, and lets it quiz you. It works on the directory it is started in.
 
-- `scan`: chunk the repository and update the map (added, changed, moved and removed chunks).
-- `get_map`: the heat map as text plus structured JSON, optionally filtered by `path` and limited by `depth`. Leaves show their usable question count, and parents show the sum.
-- `get_chunk_for_file`: the innermost chunk for a `path` and `line`, or the file's chunks when no line is given.
-- `get_status`: chunk and question counts, reviews due now and the colour distribution of the leaf chunks.
-- `get_generation_tasks({ limit?, lang? })`: the next chunks that need questions (default 3, at most 10). Chunks with no questions come first, then the most imported ones, then the biggest gap. Each task carries `chunkId`, `chunkHash`, the chunk's code numbered from line 1, the signatures of the imports it uses, the stems of its existing questions, a type plan and the instructions with the expected JSON shape. Only stems of existing questions are included, never their options or answers.
-- `save_questions({ chunkId, chunkHash, lang?, questions })`: saves the questions the agent wrote for one task. If the chunk is unknown or its code changed since the task was issued (`chunkHash` mismatch), the whole call fails and nothing is saved. Otherwise each question is validated (four distinct options, no answer leaks or length skew, line citations within the chunk, no trivia, no duplicates). The tool replies with `savedCount`, the ids it saved and `rejected: [{ index, reason, detail }]`, and never echoes the submitted text.
+```sh
+npx -y gotchea mcp        # canonical: the CLI starts the server (accepts --cwd <dir> before `mcp`)
+npx -y gotchea-mcp       # alternative: the standalone server package (uses the current directory)
+```
 
-Without a `.gotchea` directory the tools reply with a "run `gotchea init`" message instead of an error. Quiz tools are planned.
+| Tool | What it does |
+|---|---|
+| `scan` | Chunk the repository and update the map: detects added, changed, moved and removed chunks. Runs synchronously. |
+| `get_map` | The heat map (repo > module > file > symbol) with colors, LOC and question counts. Optional `path` filter and `depth` limit. |
+| `get_chunk_for_file` | The innermost chunk covering a `path` and `line`, or the file chunk and its leaves when no line is given. Served from an in-memory index. |
+| `get_status` | Tracked chunk count, question count, reviews due now and the color distribution of the leaf chunks. |
+| `get_generation_tasks` | The next chunks that need questions (`limit` 1–10, default 3; optional `lang`): numbered code, import signatures, existing stems only, and the instructions. |
+| `save_questions` | Save the questions written for one task (`chunkId`, `chunkHash`, `questions`). Refused as a whole if the code changed; otherwise each question is validated and rejects come back as `{ index, reason, detail }`. |
+| `start_quiz` | Start (or resume) a quiz on one chunk, by `path` or `chunkId`, optional `count` and `lang`. Returns the first question only. |
+| `submit_answer` | Submit the user's choice (`sessionId`, `questionId`, `displayIndex` A=0…D=3). Returns the reveal for that question, then the next question or the result. |
 
-To generate questions, ask your agent to call `get_generation_tasks` and then `save_questions` for each task. Do this in a subagent or a separate session: the answers the agent writes stay in its context, so it should not be the same context you take the quiz in.
+No tool output contains a correct answer or an explanation before the question has been answered; sessions and the answer key stay on the server. Without a `.gotchea` directory the tools reply with a "run `gotchea init`" message instead of an error. If the client supports MCP form elicitation, `start_quiz` asks you the questions directly through the client's UI, so the model never sees them before you answer (set `GOTCHEA_MCP_ELICIT=off` to disable).
 
 ### Claude Code
 
 ```sh
 claude mcp add gotchea -- npx -y gotchea mcp
 ```
+
+See [docs/claude-code.md](docs/claude-code.md) for an example session, generating questions in a subagent and a `CLAUDE.md` snippet.
 
 ### Codex
 
@@ -95,10 +143,15 @@ command = "npx"
 args = ["-y", "gotchea", "mcp"]
 ```
 
+See [docs/codex.md](docs/codex.md) for an `AGENTS.md` snippet.
+
+> [!WARNING]
+> **Answer-key isolation.** The tools never return answers before you answer, but two leaks are accepted by design: `.gotchea/questions/*.json` on disk contains the answers, and in host mode the generating agent's context contains the answers it wrote. Generate in a subagent or a separate session, and don't let the quizzing agent read `.gotchea/questions/`.
+
 ## How it works
 
 1. **Chunk.** `gotchea scan` parses your code with tree-sitter (TS/TSX/JS and Python) and builds a tree of module → file → symbol group → symbol. Large files are split into symbols, and tiny neighbors are merged. Every chunk gets a stable, human-readable id (for example `src/auth/session.ts#SessionStore.refresh`) and a content hash that ignores comments and whitespace.
-2. **Quiz** *(planned)*. Each leaf chunk gets multiple-choice questions that test real understanding: behavior, edge cases, purpose, impact and bug detection.
+2. **Quiz.** Each leaf chunk gets multiple-choice questions that test real understanding: behavior, edge cases, purpose, impact and bug detection. Questions are stored against the chunk's content hash, with line references relative to the chunk, so they survive the code moving and go stale when it changes.
 3. **Remember.** Each chunk you pass gets a memory *stability* **S**. Your *retrievability* **R** (how likely you are to still remember it) fades over time:
 
    ```
@@ -123,7 +176,7 @@ Modules and files get their R as the lines-of-code-weighted average of their chi
 Your knowledge decays in two ways:
 
 - **Time.** R drops every day you don't review. A green chunk turns **yellow** once R falls below 85%, and **red** below 50%. The moment R crosses 85% is the chunk's due date.
-- **Code changes.** When a chunk's code changes (your edit or a teammate's pull), `scan` compares the new lines against a local snapshot of the version you last saw. It then shrinks your stability in proportion to the change:
+- **Code changes.** When a chunk's code changes (your edit or a teammate's pull), gotchea compares the new lines against a local snapshot of the version you last saw. It then shrinks your stability in proportion to the change:
 
   ```
   S = max(1, S × max(0.1, 1 − changeRatio))
@@ -131,14 +184,32 @@ Your knowledge decays in two ways:
 
   A small edit only shortens your memory a little, so the chunk yellows sooner. If more than **50%** of a chunk changed, you must pass it again and it turns red. Any change marks that chunk's old questions as `stale`, so it stays grey until fresh questions exist. Progress is decayed, never reset. Moved or renamed code that has the same content keeps its questions and progress.
 
+## Environment variables
+
+| Variable | Effect |
+|---|---|
+| `GOTCHEA_HOME` | Where personal progress and quiz sessions live (default `~/.gotchea`). |
+| `GOTCHEA_LOCK_TIMEOUT_MS` | How long to wait for the per-repo lock before giving up (default 30000). |
+| `GOTCHEA_MCP_ELICIT` | `off` disables quiz elicitation in the MCP server. |
+| `GOTCHEA_DEBUG` | Print stack traces for unexpected errors. |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_COMPAT_API_KEY`, `OPENAI_COMPAT_BASE_URL` | Provider credentials for `gotchea generate` (see the provider table above). |
+
 ## Requirements
 
 - Node.js **>= 20**
 - Git is recommended (files are listed with `git ls-files`, which respects `.gitignore`), but gotchea also works without it.
 
+## Packages
+
+| npm package | Role |
+|---|---|
+| [`gotchea`](packages/cli) | The CLI (`npx gotchea`), including `gotchea mcp` and the bundled web UI |
+| [`gotchea-core`](packages/core) | The comprehension engine (chunking, scanning, question pools, quizzes, scoring) |
+| [`gotchea-mcp`](packages/mcp) | The MCP server |
+
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md).
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Coding agents working on this repo should read [AGENTS.md](./AGENTS.md).
 
 ## License
 

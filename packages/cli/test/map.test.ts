@@ -126,12 +126,13 @@ describe('gotchea map', () => {
     const linkDir = await mkdtemp(join(tmpdir(), 'gotchea-cli-link-'));
     try {
       const link = join(linkDir, 'repo');
-      await symlink(s.root, link);
+      // A junction on Windows (no privilege needed); the type is ignored elsewhere.
+      await symlink(s.root, link, 'junction');
       const r = await s.gotchea(['map', '--json', join(link, 'py')], { cwd: s.root });
       expect(r.code).toBe(0);
       expect(ids((JSON.parse(r.stdout) as MapJson).root)).toEqual(['.', 'py', 'py/app.py']);
     } finally {
-      await rm(linkDir, { recursive: true, force: true });
+      await rm(linkDir, { recursive: true, force: true, maxRetries: 5 });
     }
   });
 

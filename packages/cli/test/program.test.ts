@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { VERSION } from 'gotchea-core';
-import { STUB_COMMANDS } from '../src/commands/stubs.js';
+import { createProgram } from '../src/program.js';
 import { createSandbox, type Sandbox } from './helpers.js';
 
 let s: Sandbox;
@@ -28,18 +28,23 @@ describe('gotchea program', () => {
     expect(r).toMatchObject({ code: 0, stdout: `${VERSION}\n` });
   });
 
-  it('fails on unknown commands and options', async () => {
+  it('fails on unknown commands and options with the usage exit code', async () => {
     const unknown = await s.gotchea(['nope']);
-    expect(unknown.code).not.toBe(0);
+    expect(unknown.code).toBe(2);
     expect(unknown.stderr).toContain("unknown command 'nope'");
     const badOpt = await s.gotchea(['map', '--bogus']);
-    expect(badOpt.code).not.toBe(0);
+    expect(badOpt.code).toBe(2);
     expect(badOpt.stderr).toContain('--bogus');
+    expect((await s.gotchea(['map', 'a', 'b'])).code).toBe(2);
+    expect((await s.gotchea(['quiz', '--count'])).code).toBe(2);
+    expect((await s.gotchea([])).code).toBe(2);
   });
 
-  it('has no stub commands left', async () => {
-    expect(STUB_COMMANDS).toEqual([]);
+  it('registers exactly the implemented commands, with no stubs', async () => {
+    const names = createProgram().commands.map((c) => c.name());
+    expect(names.sort()).toEqual(['generate', 'init', 'map', 'mcp', 'quiz', 'scan', 'serve', 'status']);
     expect((await s.gotchea(['--help'])).stdout).not.toContain('not implemented');
+    for (const name of names) expect((await s.gotchea([name, '--help'])).stdout).not.toContain('not implemented');
   });
 
   it('resolves --cwd against the working directory, before or after the command', async () => {

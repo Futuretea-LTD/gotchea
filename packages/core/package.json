@@ -37,6 +37,7 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
+    "!dist/**/*.map",
     "wasm",
     "README.md",
     "LICENSE"
@@ -52,7 +53,7 @@
     "build": "node scripts/copy-wasm.mjs && tsup && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --config ../../vitest.config.ts --project core",
-    "clean": "rm -rf dist wasm"
+    "clean": "node -e \"for (const d of ['dist', 'wasm']) require('node:fs').rmSync(d, { recursive: true, force: true })\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

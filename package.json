@@ -25,10 +25,11 @@
     "test:coverage": "vitest run --coverage",
     "lint": "biome lint .",
     "typecheck": "pnpm -r typecheck",
+    "smoke:pack": "node scripts/pack-smoke.mjs",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm -r build && changeset publish",
-    "clean": "pnpm -r clean && rm -rf coverage"
+    "clean": "pnpm -r clean && node -e \"for (const d of ['coverage']) require('node:fs').rmSync(d, { recursive: true, force: true })\""
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

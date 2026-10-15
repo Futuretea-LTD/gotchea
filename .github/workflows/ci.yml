@@ -18,13 +18,19 @@ concurrency:
 
 jobs:
   ci:
-    name: Node ${{ matrix.node }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    # Windows runners are noticeably slower at install and file I/O.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node: [20, 22]
+    # Same shell everywhere (Git Bash on Windows), so `run:` lines behave alike.
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Check out repo
         uses: actions/checkout@v7
@@ -55,8 +61,51 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # Build before testing: tests import workspace sources, but the MCP stdio
+      # round trip (packages/mcp/test/stdio.test.ts) spawns the built dist/bin.js
+      # and skips itself without it, so this exercises it on every OS.
+      - name: Build
+        run: pnpm build
+
       - name: Test
         run: pnpm test
 
-      - name: Build
-        run: pnpm build
+  # Packs the three public packages, installs the tarballs outside the repo and
+  # drives the installed CLI + MCP server (init, scan, map --json, serve, MCP
+  # tools/list, save_questions round trip, answer-key leak scan). No LLM calls.
+  # Runs on every OS: the script's Windows paths (.cmd shims through a shell,
+  # taskkill /T) are only exercised there.
+  pack-smoke:
+    name: Pack smoke (installed tarballs) / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          standalone: true
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Builds the workspace itself (pnpm -r build) before packing.
+      - name: Pack smoke
+        run: node scripts/pack-smoke.mjs
