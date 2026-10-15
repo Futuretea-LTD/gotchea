@@ -1,6 +1,6 @@
 import { mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FsQuestionStore } from 'gotchea-core/internal';
 import { FsChunkStore, FsProgressStore, computeRepoId, type Chunk } from 'gotchea-core';
@@ -56,7 +56,7 @@ describe('gotchea map', () => {
     const r = await s.gotchea(['map']);
     expect(r.code).toBe(0);
     const lines = r.stdout.split('\n');
-    const name = s.root.slice(s.root.lastIndexOf('/') + 1);
+    const name = basename(s.root);
     expect(lines[0]).toMatch(new RegExp(`^● ${name}/\\s+53 LOC\\s+–$`));
     expect(r.stdout).toMatch(/^├─ ● py\/\s+9 LOC\s+–$/m);
     expect(r.stdout).toMatch(/^ {3}└─ ● math\.ts\s+30 LOC\s+–$/m);
