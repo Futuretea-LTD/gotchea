@@ -87,6 +87,9 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
+          # Changesets needs the full history to resolve changelog commit SHAs;
+          # on a shallow clone its `git fetch --deepen` fails and the step exits 1.
+          fetch-depth: 0
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
