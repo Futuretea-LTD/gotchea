@@ -26,7 +26,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [20, 22]
+        # Major versions resolve to the latest patch (Node 20 >= 20.19 for Vite).
+        node: [20, 22, 24]
     # Same shell everywhere (Git Bash on Windows), so `run:` lines behave alike.
     defaults:
       run:
