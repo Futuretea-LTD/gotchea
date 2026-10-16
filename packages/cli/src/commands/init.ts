@@ -41,7 +41,7 @@ export async function initCommand(ctx: CommandContext, opts: InitOptions): Promi
   }
   out(`${pc.green('✔')} Questions directory: ${rel(paths.questionsDir)}/`);
 
-  const ignored = await findIgnoredPaths(root, MUST_TRACK);
+  const ignored = await findIgnoredPaths(root, MUST_TRACK, { onWarning: warn });
   if (ignored.length > 0) {
     warn(`${GOTCHEA_DIR}/ is ignored by git, but it holds shared state and should be committed.`);
     for (const hit of ignored) {

@@ -17,6 +17,12 @@ export interface IgnoredPath {
 export interface IgnoreCheckOptions {
   /** Ask git first (default true); falls back to the root `.gitignore` when git is unavailable. */
   useGit?: boolean;
+  /**
+   * Told when git failed for a reason other than "not a repository" and the answer comes from the
+   * weaker fallback (nested `.gitignore` files and global excludes are then not seen). Defaults to
+   * one line on stderr: stdout may be carrying JSON-RPC or `--json` output.
+   */
+  onWarning?: (message: string) => void;
 }
 
 /**
@@ -31,22 +37,40 @@ export async function findIgnoredPaths(
   if (paths.length === 0) return [];
   if (opts.useGit !== false) {
     const viaGit = await gitCheckIgnore(root, paths);
-    if (viaGit !== null) return viaGit;
+    if (Array.isArray(viaGit)) return viaGit;
+    if (viaGit.warning !== null) {
+      const warn = opts.onWarning ?? ((m: string) => void process.stderr.write(`gotchea: warning: ${m}\n`));
+      warn(`${viaGit.warning}; checked only .gitignore and .git/info/exclude at the repository root`);
+    }
   }
   return checkGitignoreFiles(root, paths);
 }
 
-/** `git check-ignore -v -z --no-index`; null when git is unavailable or `root` is not a repo. */
-function gitCheckIgnore(root: string, paths: readonly string[]): Promise<IgnoredPath[] | null> {
+/** Why git could not answer; `warning` is null when `root` is simply not a repository. */
+interface GitFailure {
+  warning: string | null;
+}
+
+/**
+ * `git check-ignore -v -z --no-index --stdin`. Git only accepts `-z` together with `--stdin`
+ * (exit 128 otherwise), and stdin also keeps long path lists clear of argv limits.
+ */
+function gitCheckIgnore(root: string, paths: readonly string[]): Promise<IgnoredPath[] | GitFailure> {
   return new Promise((done) => {
-    execFile(
+    const child = execFile(
       'git',
-      ['-C', root, 'check-ignore', '-v', '-z', '--no-index', '--', ...paths],
-      { timeout: 10_000, windowsHide: true, encoding: 'utf8' },
-      (err, stdout) => {
+      ['-C', root, 'check-ignore', '-v', '-z', '--no-index', '--stdin'],
+      // LC_ALL=C keeps git's messages in English so "not a git repository" can be recognised.
+      { timeout: 10_000, windowsHide: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, LC_ALL: 'C' } },
+      (err, stdout, stderr) => {
         // Exit 1 means "nothing ignored"; anything else non-zero is a real failure.
         const code = (err as { code?: unknown } | null)?.code;
-        if (err && code !== 1) return done(null);
+        if (err && code !== 1) {
+          const detail = stderr.split(/\r?\n/).find((l) => l.trim() !== '')?.trim();
+          if (/not a git repository/i.test(stderr)) return done({ warning: null });
+          const what = code === 'ENOENT' ? 'git was not found' : `git check-ignore failed (exit ${String(code ?? err.message)})`;
+          return done({ warning: detail ? `${what}: ${detail}` : what });
+        }
         // Records: <source> NUL <line> NUL <pattern> NUL <path> NUL
         const f = stdout.split('\0');
         const out: IgnoredPath[] = [];
@@ -58,6 +82,10 @@ function gitCheckIgnore(root: string, paths: readonly string[]): Promise<Ignored
         done(out);
       },
     );
+    // git may exit before reading everything (missing binary, bad repo): the callback reports
+    // that, so a broken pipe here is not a second error.
+    child.stdin?.on('error', () => {});
+    child.stdin?.end(paths.map((p) => `${p}\0`).join(''));
   });
 }
 
