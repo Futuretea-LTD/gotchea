@@ -31,6 +31,7 @@ export const SOURCES: Record<string, string> = {
     '',
   ].join('\n'),
   'src/index.ts': "import { clamp } from './math.js';\n\nexport const limit = (n: number) => clamp(n, 0, 10);\n",
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: fixture source contains a literal template expression.
   'src/util/strings.ts': 'export function shout(s: string): string {\n  const out = s.toUpperCase();\n  return `${out}!`;\n}\n',
   'py/app.py': 'def greet(name):\n    message = "hello " + name\n    return message\n',
 };

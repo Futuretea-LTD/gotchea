@@ -204,7 +204,7 @@ function variables(decl: Node, outer: Node, includeValues: boolean): SymbolNode[
   const out: SymbolNode[] = [];
   for (const d of declarators) {
     const name = d.childForFieldName('name');
-    if (!name || name.type !== 'identifier') continue;
+    if (name?.type !== 'identifier') continue;
     const value = d.childForFieldName('value');
     const isFn = value !== null && FUNCTION_VALUES.has(value.type);
     if (!isFn && !includeValues) continue;
@@ -322,10 +322,10 @@ function pushReExport(stmt: Node, out: ImportRef[]): void {
 /** `require('x')` with a single string literal argument. */
 function pushRequire(call: Node, out: ImportRef[]): void {
   const fn = call.childForFieldName('function');
-  if (!fn || fn.type !== 'identifier' || fn.text !== 'require') return;
+  if (fn?.type !== 'identifier' || fn.text !== 'require') return;
   const args = call.childForFieldName('arguments');
   const arg = args?.namedChildren.filter((n) => n.type !== 'comment');
-  if (!arg || arg.length !== 1 || arg[0]?.type !== 'string') return;
+  if (arg?.length !== 1 || arg[0]?.type !== 'string') return;
   const ref: ImportRef = { specifier: stringContent(arg[0]), names: [], line: startLine(call) };
   const parent = call.parent;
   const binding = parent?.type === 'variable_declarator' && parent.childForFieldName('value')?.equals(call) ? parent.childForFieldName('name') : null;
