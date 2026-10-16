@@ -2,6 +2,7 @@ import { isAbsolute, basename, relative } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { copyMapNode, filterTree, isInitialized, loadConfig, loadMapTree, renderHeatCell, toPosixPath, type MapNode } from 'gotchea-core';
 import { INIT_MESSAGE, SCAN_MESSAGE, guarded, textResult, type ToolContext } from '../context.js';
+import { messagesFor } from '../i18n.js';
 import { GetMapInputSchema, GetMapOutputSchema, type MapNodeOut } from '../schemas.js';
 
 /** Shared with `map --json` and `gotchea serve`: schema fields only, cut `depth` levels below `node`. */
@@ -21,24 +22,24 @@ function questionSums(node: MapNode, out = new Map<string, number>()): Map<strin
   return out;
 }
 
-function summaryLine(full: MapNodeOut): string {
+function summaryLine(full: MapNodeOut, messages: ReturnType<typeof messagesFor>): string {
   const ls = leaves(full);
   const questions = ls.reduce((n, l) => n + l.okQuestions, 0);
   let next: string;
-  if (questions === 0) next = 'soru üret';
-  else if (ls.some((l) => l.state.color === 'grey' || l.state.color === 'red')) next = 'quiz çöz';
-  else if (ls.some((l) => l.state.color === 'yellow')) next = 'sarıları tekrar et';
-  else next = 'hepsi yeşil';
-  return `${ls.length} chunk · ${questions} soru · sonraki adım: ${next}`;
+  if (questions === 0) next = messages.generateQuestions;
+  else if (ls.some((l) => l.state.color === 'grey' || l.state.color === 'red')) next = messages.takeQuiz;
+  else if (ls.some((l) => l.state.color === 'yellow')) next = messages.reviewYellow;
+  else next = messages.allGreen;
+  return messages.mapSummary(ls.length, questions, next);
 }
 
-function renderTree(node: MapNodeOut, level: number, lines: string[], sums: ReadonlyMap<string, number>): void {
+function renderTree(node: MapNodeOut, level: number, lines: string[], sums: ReadonlyMap<string, number>, messages: ReturnType<typeof messagesFor>): void {
   const name = node.kind === 'module' ? `${node.title}/` : node.title;
   // Parents carry no questions of their own; show the sum over all leaves below, even past the `depth` cut.
   const sum = sums.get(node.id) ?? 0;
-  const q = node.isLeaf ? ` · ${node.okQuestions} soru` : sum > 0 ? ` · Σ ${sum} soru` : '';
+  const q = node.isLeaf ? ` · ${messages.questionCount(node.okQuestions)}` : sum > 0 ? ` · Σ ${messages.questionCount(sum)}` : '';
   lines.push(`${'  '.repeat(level)}${renderHeatCell(node.state.color, 'emoji')} ${name} · ${node.loc} LOC${q}`);
-  for (const c of node.children) renderTree(c, level + 1, lines, sums);
+  for (const c of node.children) renderTree(c, level + 1, lines, sums, messages);
 }
 
 /** Repo-relative chunk filter from a user path (directory, file or chunk id). */
@@ -78,8 +79,9 @@ export function registerGetMap(server: McpServer, ctx: ToolContext): void {
           return textResult(`No chunks match ${filter}.`, { initialized: true, scanned: true, filter, depth: depth ?? null, root: null });
         }
         const root = toOut(tree, depth);
-        const lines = [summaryLine(toOut(full, undefined))];
-        renderTree(root, 0, lines, questionSums(tree));
+        const messages = messagesFor(config.questions.lang);
+        const lines = [summaryLine(toOut(full, undefined), messages)];
+        renderTree(root, 0, lines, questionSums(tree), messages);
         return textResult(lines.join('\n'), { initialized: true, scanned: true, filter, depth: depth ?? null, root });
       }),
   );

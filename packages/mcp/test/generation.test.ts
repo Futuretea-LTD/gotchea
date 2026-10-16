@@ -141,8 +141,8 @@ describe('save_questions', () => {
     expect(alpha.okQuestions).toBe(1);
     expect(alpha.state.color).not.toBe('grey');
     expect(find(out.root!, 'src/big.ts#beta')!.state.color).toBe('grey');
-    expect(text(res)).toMatch(/alpha · \d+ LOC · 1 soru/);
-    expect(text(res)).toMatch(/big\.ts · \d+ LOC · Σ 1 soru/);
+    expect(text(res)).toMatch(/alpha · \d+ LOC · 1 question/);
+    expect(text(res)).toMatch(/big\.ts · \d+ LOC · Σ 1 question/);
   });
 
   it('get_generation_tasks moves the chunk behind the grey ones and lists its stem', async () => {

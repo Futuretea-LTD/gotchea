@@ -45,7 +45,7 @@ describe('gotchea-mcp', () => {
 
     const map = await client.callTool({ name: 'get_map', arguments: {} });
     const text = (map.content as { text: string }[])[0]!.text;
-    expect(text.split('\n')[0]).toMatch(/^\d+ chunk · 0 soru · sonraki adım: soru üret$/);
+    expect(text.split('\n')[0]).toMatch(/^\d+ chunks? · 0 questions · next step: generate questions$/);
     expect(text).toContain('⬜');
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no ANSI escapes
     expect(text).not.toMatch(/\u001b/);

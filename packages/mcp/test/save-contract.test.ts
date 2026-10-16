@@ -286,9 +286,9 @@ describe('get_map before and after save_questions', () => {
     const beta0 = await leafOf(BETA);
     expect(beta0).toMatchObject({ okQuestions: 0, state: { color: 'grey', R: null } });
     const text0 = await mapText();
-    expect(text0).toMatch(/⬜ beta · \d+ LOC · 0 soru/);
+    expect(text0).toMatch(/⬜ beta · \d+ LOC · 0 questions/);
     expect(text0).not.toMatch(/big\.ts · \d+ LOC · Σ/);
-    expect(text0).toMatch(/src\/ · \d+ LOC · Σ 1 soru/); // the seeded math question
+    expect(text0).toMatch(/src\/ · \d+ LOC · Σ 1 question/); // the seeded math question
     const status0 = (await call('get_status')).structuredContent as { questions: number };
 
     const beta = await chunkOf(BETA);
@@ -305,14 +305,14 @@ describe('get_map before and after save_questions', () => {
     expect(beta1.questionCount).toBe(beta0.questionCount); // quiz size from the band, not the pool
     expect(beta1.state).toEqual({ color: 'red', R: 0, dueAt: null });
     const text1 = await mapText();
-    expect(text1).toMatch(/🟥 beta · \d+ LOC · 2 soru/);
-    expect(text1).toMatch(/big\.ts · \d+ LOC · Σ 2 soru/);
-    expect(text1).toMatch(/src\/ · \d+ LOC · Σ 3 soru/);
-    expect(text1.split('\n')[0]).toMatch(/ · 3 soru · sonraki adım: quiz çöz$/);
+    expect(text1).toMatch(/🟥 beta · \d+ LOC · 2 questions/);
+    expect(text1).toMatch(/big\.ts · \d+ LOC · Σ 2 questions/);
+    expect(text1).toMatch(/src\/ · \d+ LOC · Σ 3 questions/);
+    expect(text1.split('\n')[0]).toMatch(/ · 3 questions · next step: take a quiz$/);
     // A depth cut hides the leaves, not their totals.
     const cut = text(await call('get_map', { depth: 1 }));
     expect(cut).not.toMatch(/big\.ts/);
-    expect(cut).toMatch(/src\/ · \d+ LOC · Σ 3 soru/);
+    expect(cut).toMatch(/src\/ · \d+ LOC · Σ 3 questions/);
     expect((await call('get_status')).structuredContent).toMatchObject({ questions: status0.questions + 2 });
   });
 
@@ -347,6 +347,6 @@ describe('get_map before and after save_questions', () => {
     const map = GetMapOutputSchema.parse(res.structuredContent);
     for (const id of [GAMMA, ALPHA]) expect(find(map.root!, id), id).toMatchObject({ okQuestions: 0, state: { color: 'grey' } });
     expect(text(res)).not.toMatch(/Σ/);
-    expect(text(res)).toMatch(/gamma · \d+ LOC · 0 soru/);
+    expect(text(res)).toMatch(/gamma · \d+ LOC · 0 questions/);
   });
 });

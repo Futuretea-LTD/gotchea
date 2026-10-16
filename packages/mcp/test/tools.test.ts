@@ -92,13 +92,13 @@ describe('get_map', () => {
 
     const t = text(res);
     const lines = t.split('\n');
-    expect(lines[0]).toMatch(/^\d+ chunk · \d+ soru · sonraki adım: .+$/);
+    expect(lines[0]).toMatch(/^\d+ chunks? · \d+ questions? · next step: .+$/);
     expect(lines.length).toBeGreaterThan(1);
     expect(lines[0]).not.toMatch(/[⬜🟥🟨🟩]/u);
     // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting no ANSI escapes
     expect(t).not.toMatch(/\x1b\[/);
     for (const line of lines.slice(1)) expect(line).toMatch(/^ *[⬜🟥🟨🟩] .+ · \d+ LOC/u);
-    expect(t).toMatch(/· 1 soru/);
+    expect(t).toMatch(/· 1 question/);
     expect(t).toContain('math.ts');
   });
 
