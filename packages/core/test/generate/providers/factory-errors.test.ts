@@ -19,10 +19,11 @@ const reject = async (p: Promise<unknown>): Promise<Error> => {
 };
 
 describe('createProvider: unknown provider', () => {
-  it('throws a plain Error naming the value (unreachable from the CLI, which validates --provider first)', async () => {
+  it('throws a ProviderError naming the value and valid providers (unreachable from the CLI, which validates --provider first)', async () => {
     const e = await reject(createProvider('bogus' as never, { config: config(), env: { ANTHROPIC_API_KEY: SECRET } }));
-    expect(e).not.toBeInstanceOf(ProviderError); // so the CLI would print it as an unexpected error, not exit 2
-    expect(e.message).toBe('unknown provider bogus');
+    expect(e).toBeInstanceOf(ProviderError);
+    expect((e as ProviderError).code).toBe('unknown_provider');
+    expect(e.message).toBe('unknown provider bogus; valid providers: anthropic, openai, openai-compatible');
     expect(e.message).not.toContain(SECRET);
     expect(e.message).not.toMatch(/\n\s+at /);
   });

@@ -30,7 +30,7 @@ export interface LLMProvider {
   completeJson(req: JsonRequest): Promise<unknown>;
 }
 
-export type ProviderErrorCode = 'missing_api_key' | 'missing_model' | 'http' | 'refusal' | 'truncated' | 'invalid_json' | 'network';
+export type ProviderErrorCode = 'unknown_provider' | 'missing_api_key' | 'missing_model' | 'http' | 'refusal' | 'truncated' | 'invalid_json' | 'network';
 
 /** Messages describe the failure only; they never carry model output or prompt text. */
 export class ProviderError extends Error {
@@ -47,7 +47,7 @@ export class ProviderError extends Error {
 
 /** Configuration errors abort a run; the rest are per-request failures. */
 export function isConfigError(err: unknown): err is ProviderError {
-  return err instanceof ProviderError && (err.code === 'missing_api_key' || err.code === 'missing_model');
+  return err instanceof ProviderError && (err.code === 'unknown_provider' || err.code === 'missing_api_key' || err.code === 'missing_model');
 }
 
 /** '<provider>:<model>', as stored in `generatedBy` / `verifiedBy`. */

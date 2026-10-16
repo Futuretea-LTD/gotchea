@@ -45,7 +45,7 @@ function requireKey(name: ProviderName, env: CreateProviderOptions['env']): stri
   return key;
 }
 
-/** Throws ProviderError `missing_api_key` / `missing_model` before any request is made. */
+/** Throws ProviderError for invalid provider configuration before any request is made. */
 export const createProvider: CreateProvider = async (name, opts) => {
   switch (name) {
     case 'anthropic': {
@@ -74,7 +74,7 @@ export const createProvider: CreateProvider = async (name, opts) => {
       });
     }
     default:
-      throw new Error(`unknown provider ${String(name satisfies never)}`);
+      throw new ProviderError('unknown_provider', `unknown provider ${String(name satisfies never)}; valid providers: ${PROVIDER_NAMES.join(', ')}`);
   }
 };
 

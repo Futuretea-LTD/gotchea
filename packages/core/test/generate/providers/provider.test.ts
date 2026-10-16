@@ -58,7 +58,8 @@ describe('requestQuestionBatch', () => {
 });
 
 describe('helpers', () => {
-  it('isConfigError is true only for missing_api_key / missing_model', () => {
+  it('isConfigError is true only for provider configuration errors', () => {
+    expect(isConfigError(new ProviderError('unknown_provider', 'x'))).toBe(true);
     expect(isConfigError(new ProviderError('missing_api_key', 'x'))).toBe(true);
     expect(isConfigError(new ProviderError('missing_model', 'x'))).toBe(true);
     for (const code of ['http', 'refusal', 'truncated', 'invalid_json', 'network'] as const) {
