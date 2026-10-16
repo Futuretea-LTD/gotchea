@@ -1,3 +1,4 @@
+import { now as currentTime } from '../now.js';
 // The one write path for generated questions (M2_DESIGN.md §8.2, decision D6):
 // call-level gate (chunk exists, is a leaf, hash matches) → validator → stamp →
 // persist under the per-chunk lock. The result carries indices, ids, reason codes
@@ -118,7 +119,7 @@ export async function saveQuestions(root: string, input: SaveInput, opts: SaveOp
     cfg: config.questions,
   });
 
-  const now = opts.now ?? new Date();
+  const now = opts.now ?? currentTime(opts.env);
   const verifyErrors: string[] = [];
   const stamped: { index: number; question: QuestionPrivate }[] = [];
   for (const { index, question } of validation.accepted) {

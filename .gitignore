@@ -39,3 +39,6 @@ Thumbs.db
 
 # release preparation notes (local only)
 .release-prep/
+
+# e2e run report (rewritten by e2e/src/reporter.ts on every run)
+e2e/report.md

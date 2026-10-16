@@ -1,3 +1,4 @@
+import { now as currentTime } from '../now.js';
 // The quiz engine (M3_DESIGN.md §6): the only code that selects, grades and scores. The MCP tools
 // and the CLI are renderers over it. Results carry views only: a question's key, explanation and
 // refs leave this module only as a `RevealView`, after the answer was recorded.
@@ -150,7 +151,7 @@ export async function startQuiz(root: string, input: StartQuizInput, deps: QuizO
 
   const config = deps.config ?? (await loadConfig(root));
   const env = deps.env ?? process.env;
-  const now = (deps.now ?? (() => new Date()))();
+  const now = deps.now ? deps.now() : currentTime(env);
   const rng = deps.rng ?? cryptoRng;
   const repoId = await computeRepoId(root);
   const { sessions } = deps;
@@ -227,7 +228,7 @@ export async function submitAnswer(root: string, input: SubmitAnswerInput, deps:
   const { sessions } = deps;
   const config = deps.config ?? (await loadConfig(root));
   const env = deps.env ?? process.env;
-  const now = (deps.now ?? (() => new Date()))();
+  const now = deps.now ? deps.now() : currentTime(env);
   if (!Number.isInteger(input.displayIndex) || input.displayIndex < 0 || input.displayIndex > 3) return refuseSubmit('invalid_index', 'displayIndex must be 0-3.');
 
   const session = await sessions.get(input.sessionId);

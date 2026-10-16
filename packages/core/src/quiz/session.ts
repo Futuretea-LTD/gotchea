@@ -1,3 +1,4 @@
+import { now as currentTime } from '../now.js';
 // Server-side quiz sessions (M3_DESIGN.md §3). A session holds the question order, one
 // option permutation per question and the answers given; it never holds the answer key,
 // a stem, an option or an explanation. Only a completed session scores (`scoreSession`).
@@ -128,7 +129,7 @@ export class QuizSessions {
 
   constructor(opts: QuizSessionsOptions) {
     this.store = opts.store;
-    this.now = opts.now ?? (() => new Date());
+    this.now = opts.now ?? currentTime;
     this.rng = opts.rng ?? cryptoRng;
     this.ttlMs = opts.ttlMs;
     this.retentionMs = opts.retentionMs;
@@ -338,7 +339,7 @@ export async function scoreSession(session: Session, opts: ScoreSessionOptions):
         before,
         {
           passed,
-          at: (opts.now ?? new Date()).toISOString(),
+          at: (opts.now ?? currentTime(env)).toISOString(),
           hash: session.chunkHash,
           sessionId: session.id,
           questionIds: session.questionIds,

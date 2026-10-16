@@ -5,6 +5,8 @@ import { createRequire } from 'node:module';
 // is the package root from both src/index.ts and the bundled dist/index.js.
 export const VERSION: string = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 
+export { now } from './now.js';
+
 // ---- assets ----
 export { grammarPath, treeSitterRuntimePath, type GrammarName } from './assets.js';
 

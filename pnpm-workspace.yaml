@@ -1,5 +1,6 @@
 packages:
   - packages/*
+  - e2e
 
 # pnpm >= 10 blocks dependency install scripts unless explicitly allowed.
 # esbuild (via tsup) installs its platform binary in postinstall.

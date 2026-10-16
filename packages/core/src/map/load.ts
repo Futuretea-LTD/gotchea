@@ -1,3 +1,4 @@
+import { now as currentTime } from '../now.js';
 // Loads everything the map needs from disk and builds the tree.
 import { loadConfig } from '../config/load.js';
 import type { GotcheaConfig } from '../config/schema.js';
@@ -36,7 +37,7 @@ export async function loadMapTree(repoRoot: string, opts: LoadMapOptions = {}): 
     chunks: file.chunks,
     okQuestions,
     progress: progress.chunks,
-    now: opts.now ?? new Date(),
+    now: opts.now ?? currentTime(opts.env),
     cfg: config.score,
   });
   return { repoId, root: buildMapTree(file.chunks, states, okQuestions) };

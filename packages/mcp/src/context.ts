@@ -9,6 +9,7 @@ import {
   ensureReconciled,
   isInitialized,
   loadConfig,
+  now as currentTime,
   type QuizOpsDeps,
   type Rng,
 } from 'gotchea-core';
@@ -55,7 +56,7 @@ export function createToolContext(opts: ServerOptions = {}): ToolContext {
   let index = load();
   index.catch(() => undefined);
   const env = opts.env ?? process.env;
-  const now = opts.now ?? (() => new Date());
+  const now = opts.now ?? (() => currentTime(env));
   let sessions: Promise<QuizSessions> | null = null;
   const openSessions = async (): Promise<QuizSessions> => {
     const config = await loadConfig(root);

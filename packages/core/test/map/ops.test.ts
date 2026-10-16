@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FsQuestionStore, type QuestionPrivate } from '../../src/internal.js';
-import { getStatus, initConfig, isInitialized, loadMapTree, okQuestionCounts, runScan, type MapNode } from '../../src/index.js';
+import { FsProgressStore, computeRepoId, getStatus, initConfig, isInitialized, loadMapTree, okQuestionCounts, runScan, type MapNode } from '../../src/index.js';
 import { copyFixture, type FixtureRepo } from '../helpers/fixture-repo.js';
 
 let fx: FixtureRepo;
@@ -39,6 +39,27 @@ describe('isInitialized', () => {
 });
 
 describe('runScan / getStatus / loadMapTree', () => {
+  it('uses environment time for decay and due counts, with explicit dates taking precedence', async () => {
+    await initConfig(fx.root);
+    const { result } = await runScan(fx.root, { env: fx.env, useGit: false });
+    const leaf = result.chunks.find((c) => c.isLeaf)!;
+    await new FsQuestionStore(fx.root).save(leaf.id, [q('clock', leaf, 'ok')]);
+    const store = new FsProgressStore(await computeRepoId(fx.root), fx.env);
+    const progress = await store.load();
+    await store.save({ ...progress, chunks: { [leaf.id]: {
+      stability: 3, lastReviewedAt: '2026-01-01T00:00:00.000Z', lastPassedHash: leaf.contentHash,
+      lastSeenHash: leaf.contentHash, mustRepass: false, history: [],
+    } } });
+    const env = { ...fx.env, GOTCHEA_NOW: '2026-01-01T00:00:00Z' };
+    expect(await getStatus(fx.root, { env })).toMatchObject({ due: 0, colors: { green: 1 } });
+    env.GOTCHEA_NOW = '2026-02-01T00:00:00Z';
+    expect(await getStatus(fx.root, { env })).toMatchObject({ due: 1, colors: { red: 1 } });
+    const later = await loadMapTree(fx.root, { env });
+    expect(later!.root!.state.color).toBe('red');
+    const earlier = await loadMapTree(fx.root, { env, now: new Date('2026-01-01T00:00:00Z') });
+    expect(earlier!.root!.state.color).toBe('green');
+  });
+
   it('reports an unscanned repo without throwing', async () => {
     await initConfig(fx.root);
     expect(await getStatus(fx.root, { env: fx.env })).toMatchObject({ scanned: false, chunks: 0, due: 0 });

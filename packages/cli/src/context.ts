@@ -3,7 +3,7 @@
 import { access, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import pc from 'picocolors';
-import { repoPaths } from 'gotchea-core';
+import { now, repoPaths } from 'gotchea-core';
 
 export type Colors = ReturnType<typeof pc.createColors>;
 
@@ -24,7 +24,7 @@ export function processIo(): CliIo {
     cwd: process.cwd(),
     env: process.env,
     color: pc.isColorSupported,
-    now: () => new Date(),
+    now: () => now(process.env),
   };
 }
 

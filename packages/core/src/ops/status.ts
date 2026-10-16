@@ -1,3 +1,4 @@
+import { now as currentTime } from '../now.js';
 // Repo-level progress numbers shared by the CLI and the MCP server.
 import { loadConfig } from '../config/load.js';
 import type { GotcheaConfig } from '../config/schema.js';
@@ -37,7 +38,7 @@ export async function getStatus(repoRoot: string, opts: GetStatusOptions = {}): 
   if (!file) return { scanned: false, chunks: 0, leaves: 0, questions: 0, due: 0, colors };
 
   const config = opts.config ?? (await loadConfig(repoRoot));
-  const now = opts.now ?? new Date();
+  const now = opts.now ?? currentTime(opts.env);
   const repoId = await computeRepoId(repoRoot);
   if (opts.reconcile !== false) await ensureReconciled(repoRoot, { config, repoId, ...(opts.env ? { env: opts.env } : {}) });
   const progress = await new FsProgressStore(repoId, opts.env ?? process.env).load();

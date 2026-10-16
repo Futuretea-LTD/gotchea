@@ -1,0 +1,126 @@
+# E2E: run MCP stdio end-to-end scenarios against the built local CLI on PRs
+# and against the latest published npm package (`gotchea@latest`) nightly / on demand.
+name: E2E
+
+on:
+  pull_request:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target to test (published, local, or version:x.y.z)'
+        required: false
+        default: 'published'
+        type: string
+
+# Least privilege: E2E only needs to read the repo.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  e2e-local:
+    name: E2E (local build)
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.target == 'local')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          standalone: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Run E2E (local)
+        run: pnpm e2e
+
+      - name: Publish E2E report to job summary
+        if: always()
+        run: |
+          if [ -f e2e/report.md ]; then
+            cat e2e/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload E2E report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report-local
+          path: e2e/report.md
+          if-no-files-found: warn
+
+  e2e-published:
+    name: E2E (published npm package)
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.target != 'local')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          standalone: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run E2E (published)
+        env:
+          GOTCHEA_TARGET: ${{ inputs.target || 'published' }}
+        run: |
+          if [ "${GOTCHEA_TARGET}" = "published" ]; then
+            pnpm e2e:published
+          else
+            pnpm --filter gotchea-e2e test
+          fi
+
+      - name: Publish E2E report to job summary
+        if: always()
+        run: |
+          if [ -f e2e/report.md ]; then
+            cat e2e/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload E2E report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report-published
+          path: e2e/report.md
+          if-no-files-found: warn

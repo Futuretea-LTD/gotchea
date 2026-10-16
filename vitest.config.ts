@@ -30,8 +30,17 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['packages/*/src/**/*.ts'],
-      // Process entry points (top-level await, no logic).
-      exclude: ['packages/*/src/bin.ts', 'packages/cli/src/index.ts'],
+      exclude: [
+        // Process entry points (top-level await, no logic).
+        'packages/*/src/bin.ts',
+        'packages/cli/src/index.ts',
+        // Type-only contracts: erased at compile time, so there is nothing to execute.
+        'packages/core/src/model/progress.ts',
+        'packages/core/src/model/question.ts',
+        'packages/core/src/chunk/chunker.ts',
+        'packages/core/src/parse/parser.ts',
+        'packages/core/src/store/types.ts',
+      ],
       reporter: ['text', 'html', 'lcov'],
       // Scoring is pure math that drives every color in the map: keep it fully covered.
       thresholds: {

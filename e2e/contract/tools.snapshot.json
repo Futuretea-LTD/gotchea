@@ -1,0 +1,184 @@
+[
+  {
+    "name": "get_chunk_for_file",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File path relative to the repo root"
+        },
+        "line": {
+          "description": "1-based line; the innermost chunk containing it is returned",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_generation_tasks",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "description": "Most tasks to return (1-10, default 3)",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "lang": {
+          "description": "Question language code such as en, tr or pt-BR; defaults to config questions.lang",
+          "type": "string"
+        }
+      },
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_map",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Only this directory, file or chunk id, relative to the repo root",
+          "type": "string"
+        },
+        "depth": {
+          "description": "Levels below the (filtered) root to include; unlimited when omitted",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_status",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "save_questions",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "chunkId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "chunkId of the generation task"
+        },
+        "chunkHash": {
+          "type": "string",
+          "minLength": 1,
+          "description": "chunkHash of the generation task; a mismatch means the code changed and the whole call is refused"
+        },
+        "lang": {
+          "description": "Question language code such as en, tr or pt-BR; defaults to config questions.lang",
+          "type": "string"
+        },
+        "questions": {
+          "minItems": 1,
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "description": "Raw questions: { type, stem, options: [4 strings], correctIndex: 0-3, explanation (cites L<n>), refs: [{start, end}], difficulty: 1-3 }. Line numbers are chunk-relative, as in the task code."
+        }
+      },
+      "required": [
+        "chunkId",
+        "chunkHash",
+        "questions"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "scan",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "start_quiz",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Directory, file or chunk-id prefix, relative to the repo root",
+          "type": "string"
+        },
+        "chunkId": {
+          "description": "Exact leaf chunk id (aliases accepted)",
+          "type": "string"
+        },
+        "count": {
+          "description": "Questions in this quiz; clamped to [quiz.minQuestions, the chunk size]",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "lang": {
+          "description": "Question language code such as en, tr or pt-BR; defaults to config questions.lang",
+          "type": "string"
+        }
+      },
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "submit_answer",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "pattern": "^qs_[0-9a-f]{16}$",
+          "description": "Session id from start_quiz"
+        },
+        "questionId": {
+          "type": "string",
+          "description": "questionId of the question being answered"
+        },
+        "displayIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3,
+          "description": "Position of the option the user picked, as displayed: A=0, B=1, C=2, D=3"
+        }
+      },
+      "required": [
+        "sessionId",
+        "questionId",
+        "displayIndex"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false
+    }
+  }
+]
