@@ -12,6 +12,23 @@
   ![gotchea demo](docs/demo.gif)
 -->
 
+## Install
+
+gotchea needs Node.js **>= 20**. Install the CLI globally:
+
+```sh
+npm i -g gotchea
+gotchea init
+```
+
+or run it without installing:
+
+```sh
+npx gotchea init
+```
+
+`init` sets up the current repository: it creates `.gotchea/` with a default `config.json` and an empty `questions/` directory, checks that git doesn't ignore `.gotchea/`, and prints where your personal progress will be stored. The examples below use `npx gotchea`; with a global install, plain `gotchea` works the same.
+
 ## Quick start
 
 Run these from the root of any TypeScript, JavaScript or Python repository. Node.js >= 20 is all you need.
@@ -51,7 +68,7 @@ npx gotchea generate --json                        # counts and reason codes as 
 
 | `--provider` | Credentials | Model |
 |---|---|---|
-| `anthropic` (default) | `ANTHROPIC_API_KEY` | `claude-sonnet-5-5`, or `--model` / `provider.models.anthropic` |
+| `anthropic` (default) | `ANTHROPIC_API_KEY` (optional `ANTHROPIC_BASE_URL`) | `claude-sonnet-5-5`, or `--model` / `provider.models.anthropic` |
 | `openai` | `OPENAI_API_KEY` (optional `OPENAI_BASE_URL`) | required: `--model` or `provider.models.openai` |
 | `openai-compatible` | optional `OPENAI_COMPAT_API_KEY`; base URL from `OPENAI_COMPAT_BASE_URL` or `provider.baseUrl` (default `http://localhost:11434/v1`) | required: `--model` or `provider.models["openai-compatible"]` |
 
@@ -188,11 +205,16 @@ Your knowledge decays in two ways:
 
 | Variable | Effect |
 |---|---|
-| `GOTCHEA_HOME` | Where personal progress and quiz sessions live (default `~/.gotchea`). |
+| `GOTCHEA_HOME` | Where personal state lives: progress, quiz sessions, code snapshots and the scan cache, under `repos/<repoId>/` (default `~/.gotchea`). Shared repo state always stays in `<repo>/.gotchea/` and is not affected. |
 | `GOTCHEA_LOCK_TIMEOUT_MS` | How long to wait for the per-repo lock before giving up (default 30000). |
 | `GOTCHEA_MCP_ELICIT` | `off` disables quiz elicitation in the MCP server. |
 | `GOTCHEA_DEBUG` | Print stack traces for unexpected errors. |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_COMPAT_API_KEY`, `OPENAI_COMPAT_BASE_URL` | Provider credentials for `gotchea generate` (see the provider table above). |
+| `ANTHROPIC_API_KEY` | API key for the default `anthropic` provider. |
+| `ANTHROPIC_BASE_URL` | Sends `anthropic` provider requests to another base URL, such as a proxy or gateway (default: the Anthropic SDK's endpoint). |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL` | Key and optional base URL for the `openai` provider. |
+| `OPENAI_COMPAT_API_KEY`, `OPENAI_COMPAT_BASE_URL` | Optional key and base URL for the `openai-compatible` provider; the base URL wins over `provider.baseUrl`. |
+
+Provider variables are read by `gotchea generate` only (see the provider table above).
 
 ## Requirements
 

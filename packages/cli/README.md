@@ -13,6 +13,17 @@ npx gotchea map        # the comprehension heat map
 npx gotchea serve      # the heat map as a web treemap on 127.0.0.1:4477
 ```
 
+## Install
+
+Requires Node.js >= 20.
+
+```sh
+npm i -g gotchea      # then run `gotchea <command>`
+npx gotchea init      # or run it without installing
+```
+
+`init` creates `.gotchea/` in the current repository with a default `config.json` and an empty `questions/` directory, warns you if git ignores `.gotchea/` (commit it: it holds the shared config, chunks and questions) and prints where your personal progress will be stored.
+
 ## Commands
 
 | Command | Options |
@@ -43,6 +54,21 @@ Codex (`~/.codex/config.toml`):
 command = "npx"
 args = ["-y", "gotchea", "mcp"]
 ```
+
+Generate questions in a subagent or a separate session, never in the conversation you take the quiz in: the generating agent keeps the answers it wrote in its context.
+
+## Environment variables
+
+| Variable | Effect |
+|---|---|
+| `GOTCHEA_HOME` | Where personal progress, quiz sessions, snapshots and the scan cache live (default `~/.gotchea`). Shared state stays in `<repo>/.gotchea/`. |
+| `GOTCHEA_LOCK_TIMEOUT_MS` | How long to wait for the per-repo lock (default 30000). |
+| `GOTCHEA_MCP_ELICIT` | `off` disables quiz elicitation in `gotchea mcp`. |
+| `GOTCHEA_DEBUG` | Print stack traces for unexpected errors. |
+| `ANTHROPIC_API_KEY` | API key for the default `anthropic` provider of `generate`. |
+| `ANTHROPIC_BASE_URL` | Another base URL for the `anthropic` provider, such as a proxy or gateway (default: the Anthropic SDK's endpoint). |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL` | Key and optional base URL for `--provider openai`. |
+| `OPENAI_COMPAT_API_KEY`, `OPENAI_COMPAT_BASE_URL` | Optional key and base URL for `--provider openai-compatible` (the base URL wins over `provider.baseUrl`). |
 
 ## Documentation
 
