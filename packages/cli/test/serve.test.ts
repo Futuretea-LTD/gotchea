@@ -210,6 +210,8 @@ describe('gotchea serve: server', () => {
     expect(forbiddenKeyIn({ a: [{ b: { stem: 'x' } }] })).toBe('stem');
     expect(forbiddenKeyIn([{ ok: 1 }, { correctIndex: 0 }])).toBe('correctIndex');
     expect(forbiddenKeyIn({ options: [] })).toBe('options');
+    // No quiz route exists, so a code preview is a quiz view leaking into a map/status body.
+    expect(forbiddenKeyIn({ root: { children: [{ code: { path: 'a.ts', text: 'x' } }] } })).toBe('code');
     expect(forbiddenKeyIn({ root: { children: [], title: 'stem' } })).toBeNull();
     expect(forbiddenKeyIn(null)).toBeNull();
   });

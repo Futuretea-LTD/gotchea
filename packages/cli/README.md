@@ -33,7 +33,7 @@ npx gotchea init      # or run it without installing
 | `status` | `--json` |
 | `map [path]` | `--json` |
 | `generate` | `--chunk <id>` `--provider <anthropic\|openai\|openai-compatible>` `--model <id>` `--lang <code>` `--limit <n>` `--verify` / `--no-verify` `--dry-run` `--json` |
-| `quiz [target]` | `--count <n>` `--lang <code>` `--new` |
+| `quiz [target]` | `--count <n>` `--lang <code>` `--new` `--code` / `--no-code` (default: config `quiz.showCode`) |
 | `serve [path]` | `--port <n>` `--no-open` |
 | `mcp` | starts the MCP server on stdio |
 

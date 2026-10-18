@@ -89,6 +89,9 @@ export function createProgram(io: CliIo = processIo(), deps: ProgramDeps = {}): 
     .option('--count <n>', 'questions in this quiz (1-10; clamped to the chunk size)')
     .option('--lang <code>', 'question language code, e.g. en, tr, pt-BR (default: config questions.lang)')
     .option('--new', "don't resume an unfinished quiz")
+    // Both forms, so an absent flag stays undefined and config `quiz.showCode` decides.
+    .option('--code', "show the chunk's source above each question (default: config quiz.showCode)")
+    .option('--no-code', "don't show the chunk's source above each question")
     .action(action((ctx, target: string | undefined, opts: QuizOptions) => quizCommand(ctx, target, opts, deps)));
 
   program
