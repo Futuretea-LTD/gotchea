@@ -1,10 +1,13 @@
-import { mkdtemp, readdir } from 'node:fs/promises';
+import { mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { ElicitRequestSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { describe, expect, it } from 'vitest';
-import { FsChunkStore, initConfig } from 'gotchea-core';
-import { EXPLANATION, FLAGGED_STEM, connect, createFixture, createRepo, text } from './helpers.js';
+import { FORBIDDEN_KEYS as PUBLIC_VIEW_FORBIDDEN_KEYS, FsChunkStore, assertPublicView, chunkLineCount, initConfig, runScan, seededRng } from 'gotchea-core';
+import { FsQuestionStore, type QuestionPrivate } from 'gotchea-core/internal';
+import { StartQuizOutputSchema, SubmitAnswerOutputSchema } from '../src/schemas.js';
+import { RELAY_END, RELAY_START } from '../src/tools/quiz-text.js';
+import { EXPLANATION, FLAGGED_STEM, NOW, SOURCES, connect, createFixture, createRepo, text } from './helpers.js';
 
 const CALLS: [string, Record<string, unknown>][] = [
   ['scan', {}],
@@ -39,12 +42,13 @@ const LEAKING = {
 const FORBIDDEN_KEYS = ['correctIndex', 'explanation', 'options', 'refs'];
 const SENTINELS = [EXPLANATION, 'SEED-OPT-', 'SUBMIT-OPT-', 'SUBMIT-EXPL', 'SEED-FLAGGED-STEM', FLAGGED_STEM, 'second guard'];
 
-function collectKeys(value: unknown, out = new Set<string>()): Set<string> {
-  if (Array.isArray(value)) for (const v of value) collectKeys(v, out);
+function collectKeys(value: unknown, out = new Set<string>(), skip: ReadonlySet<string> = new Set()): Set<string> {
+  if (Array.isArray(value)) for (const v of value) collectKeys(v, out, skip);
   else if (value && typeof value === 'object') {
     for (const [k, v] of Object.entries(value)) {
+      if (skip.has(k)) continue;
       out.add(k);
-      collectKeys(v, out);
+      collectKeys(v, out, skip);
     }
   }
   return out;
@@ -168,6 +172,188 @@ describe('answer-key isolation', () => {
       expect(named).not.toMatch(/\bexplanation\b/);
     } finally {
       await close();
+      await fx.cleanup();
+    }
+  });
+});
+
+describe('quiz tools', () => {
+  const LEAF = 'src/math.ts';
+  const QUIZ_EXPL = (i: number) => `QUIZ-EXPL-${i}: the second guard returns hi.`;
+  const CODE_KEYS = ['endLine', 'language', 'path', 'startLine', 'text'];
+
+  /** Four ok questions on src/math.ts with sentinel explanations; their keys live only on disk. */
+  async function seedQuiz(root: string): Promise<void> {
+    const leaf = (await new FsChunkStore(root).load())!.chunks.find((c) => c.id === LEAF)!;
+    const qs: QuestionPrivate[] = Array.from({ length: 4 }, (_, i) => ({
+      id: `q_${String(i + 1).padStart(12, '0')}`,
+      chunkId: leaf.id,
+      chunkHash: leaf.contentHash,
+      chunkLines: chunkLineCount(leaf),
+      type: 'behavior',
+      stem: `QUIZ-STEM-${i}: what does clamp return in case ${i}?`,
+      options: [`QUIZ-OPT-${i}-A`, `QUIZ-OPT-${i}-B`, `QUIZ-OPT-${i}-C`, `QUIZ-OPT-${i}-D`],
+      correctIndex: (i % 4) as 0 | 1 | 2 | 3,
+      explanation: QUIZ_EXPL(i),
+      refs: [{ start: 2, end: 3 }],
+      difficulty: 1,
+      lang: 'en',
+      generatedBy: 'test',
+      promptVersion: 'p1',
+      status: 'ok',
+      flagged: false,
+      verifiedBy: null,
+      createdAt: NOW.toISOString(),
+    }));
+    await new FsQuestionStore(root).save(leaf.id, qs);
+  }
+
+  /**
+   * Runs one quiz to the end and returns every question view sent before its answer, each with the
+   * full tool result it came in (the reveal of the previous answer excluded).
+   */
+  async function runQuiz(root: string, env: NodeJS.ProcessEnv, flags: { start?: boolean; submit?: boolean } = {}) {
+    const { client, close } = await connect(root, env, { rng: seededRng(9) });
+    const seen: { res: CallToolResult; question: { questionId: string; code?: unknown }; total: number }[] = [];
+    const startArgs = flags.start === undefined ? {} : { includeCode: flags.start };
+    const submitArgs = flags.submit === undefined ? {} : { includeCode: flags.submit };
+    try {
+      const start = (await client.callTool({ name: 'start_quiz', arguments: { chunkId: LEAF, ...startArgs } })) as CallToolResult;
+      const out = StartQuizOutputSchema.parse(start.structuredContent);
+      let q = out.question!;
+      seen.push({ res: start, question: q, total: out.session!.total });
+      for (;;) {
+        const res = (await client.callTool({ name: 'submit_answer', arguments: { sessionId: out.session!.id, questionId: q.questionId, displayIndex: 1, ...submitArgs } })) as CallToolResult;
+        const parsed = SubmitAnswerOutputSchema.parse(res.structuredContent);
+        if (parsed.status === 'completed') break;
+        q = parsed.next!;
+        seen.push({ res, question: q, total: out.session!.total });
+      }
+    } finally {
+      await close();
+    }
+    return seen;
+  }
+
+  it.each([
+    ['default', {}, true],
+    ['includeCode: true', { start: true, submit: true }, true],
+    ['includeCode: false', { start: false, submit: false }, false],
+    ['includeCode: false on start only', { start: false }, false],
+  ] as [string, { start?: boolean; submit?: boolean }, boolean][])('send no forbidden key anywhere before an answer, inside a code preview included (%s)', async (_, flags, withCode) => {
+    const fx = await createFixture();
+    try {
+      await seedQuiz(fx.root);
+      const seen = await runQuiz(fx.root, fx.env, flags);
+      // One pre-submit view per question of the session, never fewer.
+      expect(seen.length).toBe(seen[0]!.total);
+      expect(seen.length).toBeGreaterThan(1);
+      for (const { res, question } of seen) {
+        const label = question.questionId;
+        // Everything but the reveal of the answer just recorded (which is allowed to name the key).
+        const keys = [...collectKeys(res.structuredContent, new Set(), new Set(['reveal']))];
+        for (const k of PUBLIC_VIEW_FORBIDDEN_KEYS) expect(keys, `${label} ${k}`).not.toContain(k);
+        expect(() => assertPublicView(question), label).not.toThrow();
+        if (withCode) {
+          // Fresh chunk: the preview is there, flat, and holds only its own fields.
+          expect(question.code, label).toBeDefined();
+          expect(Object.keys(question.code as object).sort(), label).toEqual(CODE_KEYS);
+          for (const k of PUBLIC_VIEW_FORBIDDEN_KEYS) expect([...collectKeys(question.code)], `${label} code ${k}`).not.toContain(k);
+        } else {
+          expect(question, label).not.toHaveProperty('code');
+          expect(text(res), label).not.toMatch(/Code: /);
+        }
+        // The explanation of this question is nowhere in the result that asks it.
+        const n = Number(label.slice(-12)) - 1;
+        expect(JSON.stringify(res.content) + JSON.stringify(res.structuredContent), label).not.toContain(QUIZ_EXPL(n));
+      }
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  it('send no code preview once the source no longer matches the scanned chunk', async () => {
+    const fx = await createFixture();
+    try {
+      await seedQuiz(fx.root);
+      await writeFile(join(fx.root, LEAF), SOURCES[LEAF]!.replace('if (n < lo) return lo;', 'if (n <= lo) return lo;'));
+      const seen = await runQuiz(fx.root, fx.env);
+      // One pre-submit view per question of the session, never fewer.
+      expect(seen.length).toBe(seen[0]!.total);
+      expect(seen.length).toBeGreaterThan(1);
+      for (const { res, question } of seen) {
+        expect(question, question.questionId).not.toHaveProperty('code');
+        expect(text(res), question.questionId).not.toMatch(/Code: |n <= lo/);
+        const keys = [...collectKeys(res.structuredContent, new Set(), new Set(['reveal']))];
+        for (const k of PUBLIC_VIEW_FORBIDDEN_KEYS) expect(keys, `${question.questionId} ${k}`).not.toContain(k);
+      }
+    } finally {
+      await fx.cleanup();
+    }
+  });
+});
+
+describe('quiz display treats source and question text as data', () => {
+  it('escapes terminal controls, bidi and relay delimiters across text and elicitation surfaces', async () => {
+    const fx = await createFixture();
+    const unsafe = '\u001b[2J\u202e';
+    const visible = '␛[2J\\u{202E}';
+    const markers = `${RELAY_START} ${RELAY_END}`;
+    const escapedMarkers = '‹‹‹SHOW TO USER VERBATIM SHOW TO USER VERBATIM›››';
+    try {
+      const path = 'src/math.ts';
+      await writeFile(join(fx.root, path), `// ${unsafe} ${markers} ${'`'.repeat(5)}\n${SOURCES[path]!}`);
+      await runScan(fx.root, { env: fx.env });
+      const chunk = (await new FsChunkStore(fx.root).load())!.chunks.find((entry) => entry.id === path)!;
+      const store = new FsQuestionStore(fx.root);
+      const seeded = (await store.list(path))[0]!;
+      await store.save(path, Array.from({ length: 3 }, (_, index) => ({
+        ...seeded,
+        id: `q_${String(index + 1).padStart(12, '0')}`,
+        chunkHash: chunk.contentHash,
+        status: 'ok' as const,
+        flagged: false,
+        stem: `Unsafe stem ${index} ${unsafe} ${markers}`,
+        options: ['A', 'B', 'C', 'D'].map((label) => `Unsafe option ${label} ${unsafe} ${markers}`) as QuestionPrivate['options'],
+      })));
+      for (const elicitation of ['off', 'auto'] as const) {
+        const conn = await connect(fx.root, fx.env, { elicitation, capabilities: { elicitation: {} } });
+        let prompt: { message: string; requestedSchema: unknown } | undefined;
+        conn.client.setRequestHandler(ElicitRequestSchema, async (req) => {
+          if (req.params.mode === 'url') throw new Error('Expected a form prompt');
+          prompt = req.params;
+          return { action: 'cancel' };
+        });
+        try {
+          const res = await conn.client.callTool({ name: 'start_quiz', arguments: { chunkId: path } });
+          const shown = elicitation === 'auto' ? prompt!.message : text(res);
+          expect(shown).not.toContain('\u001b');
+          expect(shown).not.toContain('\u202e');
+          expect(shown).toContain(visible);
+          if (elicitation === 'off') {
+            const relay = shown.slice(shown.indexOf(RELAY_START) + RELAY_START.length, shown.indexOf(RELAY_END));
+            expect(relay).toContain(escapedMarkers);
+            expect(relay).not.toContain(RELAY_START);
+            expect(relay).not.toContain(RELAY_END);
+            // A five-backtick source run needs a six-backtick fence.
+            expect(relay).toContain('\n``````typescript\n');
+            expect(relay).toContain('\n``````\n');
+            expect(relay).toContain('Unsafe stem');
+            for (const label of ['A', 'B', 'C', 'D']) expect(relay).toContain(`Unsafe option ${label}`);
+          } else {
+            expect(shown).toMatch(/1 │ \/\//);
+            expect(shown).toContain('Unsafe stem');
+            for (const label of ['A', 'B', 'C', 'D']) expect(shown).toContain(`Unsafe option ${label}`);
+            const schema = JSON.stringify(prompt!.requestedSchema);
+            expect(schema).not.toContain('\u001b');
+            expect(schema).not.toContain('\u202e');
+            expect(schema).toContain('␛[2J');
+          }
+        } finally {
+          await conn.close();
+        }
+      }
+    } finally {
       await fx.cleanup();
     }
   });

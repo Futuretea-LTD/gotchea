@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FsChunkStore, repoPaths, toAbsoluteLine, type Chunk } from 'gotchea-core';
 import { FsQuestionStore, type QuestionPrivate } from 'gotchea-core/internal';
 import { GetMapOutputSchema, SaveQuestionsOutputSchema, type MapNodeOut } from '../src/schemas.js';
+import { RELAY_START } from '../src/tools/quiz-text.js';
 import { FLAGGED_STEM, NOW, connect, createFixture, text, type Fixture } from './helpers.js';
 
 const ALPHA = 'src/big.ts#alpha';
@@ -158,6 +159,8 @@ describe('save_questions: response shape and persistence', () => {
     // Nothing of the submission comes back, in text or structured content.
     const seen = text(res) + JSON.stringify(res.structuredContent);
     for (const s of SUBMITTED_TEXT) expect(seen, s).not.toContain(s);
+    expect(text(res)).not.toContain(RELAY_START);
+    expect(text(await call('get_generation_tasks'))).not.toContain(RELAY_START);
 
     // Disk: exactly the accepted items, stamped, in a single new file.
     const stored = await pool(ALPHA);

@@ -194,12 +194,24 @@ export const StartQuizInputSchema = z.strictObject({
   chunkId: z.string().optional().describe('Exact leaf chunk id (aliases accepted)'),
   count: z.number().int().min(1).max(10).optional().describe('Questions in this quiz; clamped to [quiz.minQuestions, the chunk size]'),
   lang: LangInput,
+  includeCode: z
+    .boolean()
+    .optional()
+    .describe(
+      "Attach the chunk's source to each question (default: the config value quiz.showCode, true unless set; a resumed session keeps its own). The preview is the working-tree source, so the quiz is open book.",
+    ),
 });
 
 export const SubmitAnswerInputSchema = z.strictObject({
   sessionId: z.string().regex(/^qs_[0-9a-f]{16}$/).describe('Session id from start_quiz'),
   questionId: z.string().describe('questionId of the question being answered'),
   displayIndex: z.number().int().min(0).max(3).describe('Position of the option the user picked, as displayed: A=0, B=1, C=2, D=3'),
+  includeCode: z
+    .boolean()
+    .optional()
+    .describe(
+      "Attach the chunk's source to the next question (default: the session's value, set by start_quiz from includeCode or quiz.showCode, default true). The preview is the working-tree source, so the quiz is open book.",
+    ),
 });
 
 const SessionHeaderSchema = z.strictObject({
@@ -238,7 +250,8 @@ export const SessionResultViewSchema = z.strictObject({
 export const START_QUIZ_REASONS = ['both_targets', 'unknown_chunk', 'not_leaf', 'no_match', 'no_quizzable_chunk', 'not_enough_questions', 'lang_invalid'] as const;
 
 /**
- * Before submit, `question` is the strict public view: stem and display-indexed options, nothing else.
+ * Before submit, `question` is the strict public view: stem, display-indexed options and, when the working tree
+ * still matches the scanned chunk, a strict `code` preview (path, lines, language, source text), nothing else.
  * `result` is set only when an elicitation-driven quiz ran to the end inside this call; the reveals of those
  * answers are in the text only, so this schema can never carry an explanation or a key.
  */

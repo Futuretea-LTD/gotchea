@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { isInitialized, loadConfig, submitAnswer } from 'gotchea-core';
+import { assertPublicView, isInitialized, loadConfig, submitAnswer } from 'gotchea-core';
 import { INIT_MESSAGE, guarded, textResult, type ToolContext } from '../context.js';
+import { messagesFor } from '../i18n.js';
 import { SUBMIT_ANSWER_REASONS, SubmitAnswerInputSchema, SubmitAnswerOutputSchema, type SubmitAnswerOut } from '../schemas.js';
 import { SUBMIT_ANSWER_DESCRIPTION, answeredText, resultText, revealText, submitRefusal } from './quiz-text.js';
 
@@ -33,7 +34,10 @@ export function registerSubmitAnswer(server: McpServer, ctx: ToolContext): void 
         }
         const base = { initialized: true, scanned: true, ...EMPTY, repeat: res.repeat, sessionId: res.sessionId, reveal: res.reveal, progress: res.progress } as const;
         if (res.status === 'answered') {
-          return textResult(answeredText(res.sessionId, res.reveal, res.progress, res.next), { ...base, status: 'answered', next: res.next });
+          // Core already checks the view; checked again here because this is where it leaves the process.
+          const next = assertPublicView(res.next);
+          const text = answeredText(res.sessionId, res.reveal, res.progress, next, messagesFor(config.questions.lang));
+          return textResult(text, { ...base, status: 'answered', next });
         }
         const text = `${revealText(res.reveal)}\n\n${resultText(res.result, config.score.greenAt)}`;
         return textResult(text, { ...base, status: 'completed', result: res.result });
