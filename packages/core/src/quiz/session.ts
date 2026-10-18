@@ -44,6 +44,8 @@ export interface Session {
   lastActivityAt: string;
   expiresAt: string;
   completedAt?: string;
+  /** Attach a code preview to each question. Absent in 0.1.x session files, where it means true. */
+  showCode?: boolean;
 }
 
 export const SESSION_ID = /^qs_[0-9a-f]{16}$/;
@@ -74,6 +76,7 @@ export const SessionSchema = z
     lastActivityAt: Iso,
     expiresAt: Iso,
     completedAt: Iso.optional(),
+    showCode: z.boolean().optional(),
   })
   .superRefine((s, ctx) => {
     if (!s.questionIds.every((id) => s.permutations[id] !== undefined)) {
@@ -141,7 +144,7 @@ export class QuizSessions {
   }
 
   /** Draws one independent permutation per question and persists before returning. */
-  async create(i: { origin: SessionOrigin; chunkId: string; chunkHash: string; lang: string; questionIds: string[] }): Promise<Session> {
+  async create(i: { origin: SessionOrigin; chunkId: string; chunkHash: string; lang: string; questionIds: string[]; showCode?: boolean }): Promise<Session> {
     const now = this.now();
     const permutations: Record<string, Permutation> = {};
     for (const id of i.questionIds) permutations[id] = makePermutation(this.rng);
@@ -159,6 +162,7 @@ export class QuizSessions {
       startedAt: now.toISOString(),
       lastActivityAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + this.ttlMs).toISOString(),
+      ...(i.showCode !== undefined && { showCode: i.showCode }),
     };
     await this.save(SessionSchema.parse(session) as Session);
     return session;

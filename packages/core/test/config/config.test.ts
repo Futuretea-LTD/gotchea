@@ -38,6 +38,7 @@ describe('defaultConfig', () => {
     expect(c.questions.poolMultiplier).toBe(2);
     expect(c.questions.lang).toBe('en');
     expect(c.quiz.passRatio).toBe(0.75);
+    expect(c.quiz.showCode).toBe(true);
     expect(c.score).toMatchObject({
       initialStability: 3,
       passMultiplier: 2.5,

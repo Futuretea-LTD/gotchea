@@ -1,23 +1,31 @@
-import { now as currentTime } from '../now.js';
 // The quiz engine (M3_DESIGN.md §6): the only code that selects, grades and scores. The MCP tools
 // and the CLI are renderers over it. Results carry views only: a question's key, explanation and
 // refs leave this module only as a `RevealView`, after the answer was recorded.
+import { realpath } from 'node:fs/promises';
+import { isAbsolute, relative, resolve, sep, win32 } from 'node:path';
 import { loadConfig } from '../config/load.js';
 import type { GotcheaConfig } from '../config/schema.js';
 import { LangCodeSchema } from '../generate/schema.js';
+import { SourceReader } from '../generate/source.js';
 import { matchesFilter } from '../map/tree.js';
 import { buildMiniHeatmap, type MiniHeatmap } from '../map/mini-heatmap.js';
 import { okQuestionCounts } from '../map/question-counts.js';
 import type { Chunk } from '../model/chunk.js';
 import type { ChunkColor } from '../model/progress.js';
+import { now as currentTime } from '../now.js';
+import { type ParserRegistry, createDefaultRegistry } from '../parse/registry.js';
 import { type QuizSelectErrorCode, QuizSelectError, selectChunk, selectQuestions } from '../quiz/select.js';
 import { type QuizSessions, type Session, type SessionErrorCode, type SessionOrigin, SessionError, scoreSession } from '../quiz/session.js';
 import { type Rng, cryptoRng } from '../quiz/rng.js';
+import { sanitizeTerminalText } from '../quiz/sanitize.js';
 import {
   type PrivateQuestionView,
+  type PublicCodePreview,
   type PublicQuestionView,
   type RevealView,
+  PublicCodePreviewSchema,
   assertPublicView,
+  codePreview,
   toPrivateView,
   toPublicView,
   toRevealView,
@@ -25,6 +33,7 @@ import {
 import { computeTreeStates } from '../score/aggregate.js';
 import { chunkState, passThreshold } from '../score/state.js';
 import { FsChunkStore } from '../store/chunk-store.js';
+import { GOTCHEA_DIR } from '../store/paths.js';
 import { FsProgressStore } from '../store/progress-store.js';
 import { isUsable } from '../store/question-pool.js';
 import { FsQuestionStore } from '../store/question-store.js';
@@ -36,6 +45,8 @@ export interface StartQuizInput {
   chunkId?: string | undefined;
   count?: number | undefined;
   lang?: string | undefined;
+  /** Attach the chunk's current source to each question view (default `quiz.showCode`); stored on a new session. */
+  includeCode?: boolean | undefined;
 }
 
 export interface QuizOpsDeps {
@@ -70,6 +81,8 @@ export interface SubmitAnswerInput {
   sessionId: string;
   questionId: string;
   displayIndex: number;
+  /** Attach the chunk's source to the `next` question view (default: the session's stored choice). */
+  includeCode?: boolean | undefined;
 }
 
 export interface SessionResultView {
@@ -129,6 +142,57 @@ function header(session: Session, chunk: Chunk, needed: number): SessionHeader {
   };
 }
 
+// Built once: only the extension map is used, so no grammar is loaded here.
+let languageRegistry: ParserRegistry | undefined;
+function languageOf(path: string, scanned: string | undefined): string {
+  languageRegistry ??= createDefaultRegistry();
+  return languageRegistry.forPath(path)?.lang ?? scanned ?? 'text';
+}
+
+/**
+ * True when `path` is repo-relative and resolves, symlinks included, to a file under `root` but
+ * outside `.gotchea/`. chunks.json is committed and hand-editable, so its paths are not trusted to
+ * stay in the repo, nor out of the answer files: the fallback chunker accepts any file, so a forged
+ * chunk there would pass the hash check and put the key in a pre-answer view.
+ */
+async function insideRoot(root: string, path: string): Promise<boolean> {
+  if (path === '' || path.includes('\\') || path.includes('\0') || isAbsolute(path) || win32.isAbsolute(path)) return false;
+  if (path.split('/').includes('..')) return false;
+  try {
+    const [base, real] = await Promise.all([realpath(root), realpath(resolve(root, path))]);
+    const rel = relative(base, real);
+    const first = rel.split(sep)[0]!;
+    return rel !== '' && first !== '..' && first.toLowerCase() !== GOTCHEA_DIR && !isAbsolute(rel);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The chunk's working-tree source, or null when it can't be shown faithfully: a file that is
+ * missing or outside the repo, or a chunk whose current hash (re-chunked like a scan does) no
+ * longer matches chunks.json, so its lines may not be the code the questions were written for.
+ * Multi-range chunks (a `~body` remainder) get none, since one line span can't describe them.
+ * Never throws: a preview is optional and a stale chunk is reported elsewhere.
+ */
+async function chunkPreview(root: string, chunk: Chunk, config: GotcheaConfig): Promise<PublicCodePreview | null> {
+  const range = chunk.ranges.length === 1 ? chunk.ranges[0]! : undefined;
+  if (!range || !(await insideRoot(root, range.path))) return null;
+  try {
+    const reader = new SourceReader(root, config);
+    if ((await reader.currentHash(chunk)) !== chunk.contentHash) return null;
+    // Per line, after splitting: a stray `\r` becomes a stand-in, never a line break, so the
+    // line count and the 60-line cap still match the scanned range.
+    const lines = (await reader.lines(range.path)).slice(range.start - 1, range.end).map(sanitizeTerminalText);
+    const language = sanitizeTerminalText(languageOf(range.path, chunk.lang));
+    const preview = codePreview(sanitizeTerminalText(range.path), range.start, language, lines);
+    // A hand-edited chunk (e.g. an empty `lang`) must cost the preview, not fail assertPublicView and the quiz.
+    return preview && PublicCodePreviewSchema.safeParse(preview).success ? preview : null;
+  } catch {
+    return null;
+  }
+}
+
 function nextUnanswered(session: Session): string | undefined {
   return session.questionIds.find((q) => !session.answers[q]);
 }
@@ -170,7 +234,10 @@ export async function startQuiz(root: string, input: StartQuizInput, deps: QuizO
     if (id === undefined || !chunk) return null;
     const q = (await questionStore.list(chunk.id)).find((x) => x.id === id);
     if (!q || !isUsable(q, session.chunkHash)) return null;
-    return assertPublicView(toPublicView(q, session.permutations[id]!, session.questionIds.indexOf(id) + 1, session.questionIds.length));
+    // An explicit includeCode applies to this response only; a resumed session keeps its stored
+    // choice for later `next` questions, so one call can't silently flip the mode mid-quiz.
+    const code = (input.includeCode ?? session.showCode ?? true) ? await chunkPreview(root, chunk, config) : null;
+    return assertPublicView(toPublicView(q, session.permutations[id]!, session.questionIds.indexOf(id) + 1, session.questionIds.length, code));
   };
 
   // Resume an unfinished quiz in scope; an untouched one is replaced, so a retried call leaves no orphan.
@@ -218,7 +285,8 @@ export async function startQuiz(root: string, input: StartQuizInput, deps: QuizO
     if (err instanceof QuizSelectError) return refuseStart(err.code, err.message, { chunkId: chunk.id, ...err.detail });
     throw err;
   }
-  const session = await sessions.create({ origin: deps.origin, chunkId: chunk.id, chunkHash: chunk.contentHash, lang, questionIds });
+  const showCode = input.includeCode ?? config.quiz.showCode;
+  const session = await sessions.create({ origin: deps.origin, chunkId: chunk.id, chunkHash: chunk.contentHash, lang, questionIds, showCode });
   const question = await viewOf(session);
   if (!question) return refuseStart('not_enough_questions', `"${chunk.id}" has no usable questions.`, { chunkId: chunk.id });
   return { status: 'started', session: header(session, chunk, needed(questionIds.length)), question };
@@ -266,7 +334,8 @@ export async function submitAnswer(root: string, input: SubmitAnswerInput, deps:
   if (nextId !== undefined) {
     const nq = (await new FsQuestionStore(root).list(chunk.id)).find((q) => q.id === nextId);
     if (!nq || !isUsable(nq, done.chunkHash)) return refuseSubmit('question_unavailable');
-    return { status: 'answered', ...base, next: assertPublicView(toPublicView(nq, done.permutations[nextId]!, answered + 1, total)) };
+    const code = (input.includeCode ?? done.showCode ?? true) ? await chunkPreview(root, chunk, config) : null;
+    return { status: 'answered', ...base, next: assertPublicView(toPublicView(nq, done.permutations[nextId]!, answered + 1, total, code)) };
   }
 
   // Last question: score under the repo lock (idempotent on the session id), then close the session.
