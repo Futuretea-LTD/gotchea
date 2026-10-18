@@ -5,11 +5,11 @@ import { createHarness } from '../src/harness.js';
 
 const snapshot = fileURLToPath(new URL('../contract/tools.snapshot.json', import.meta.url));
 
-it('A: matches every advertised tool name and input schema against the reviewed contract', async () => {
+it('A: matches every advertised tool name, input schema and output schema against the reviewed contract', async () => {
   const harness = await createHarness();
   try {
     const result = await harness.client.listTools();
-    const tools = result.tools.map(({ name, inputSchema }) => ({ name, inputSchema })).sort((a, b) => a.name.localeCompare(b.name));
+    const tools = result.tools.map(({ name, inputSchema, outputSchema }) => ({ name, inputSchema, outputSchema })).sort((a, b) => a.name.localeCompare(b.name));
     expect(tools.length).toBeGreaterThan(0);
     expect(result.nextCursor).toBeUndefined();
     if (process.env['UPDATE_CONTRACT'] === '1') {
