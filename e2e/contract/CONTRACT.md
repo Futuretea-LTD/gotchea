@@ -1,6 +1,6 @@
 # gotchea MCP contract for Orchestea
 
-This document describes the current implementation, including nullable readiness responses and optional elicitation. The companion `tools.snapshot.json` records the tool names and exact advertised input JSON Schemas returned by a real MCP SDK client's `listTools()` call. The snapshot is the executable input contract; this document explains response shapes and integration semantics.
+This document describes the current implementation, including nullable readiness responses and optional elicitation. The companion `tools.snapshot.json` records the server `instructions` and, per tool, the name, description and the exact advertised input and output JSON Schemas returned by a real MCP SDK client's `listTools()` call. The snapshot is the executable wire contract; this document explains response semantics and integration rules.
 
 ## Transport and compatibility
 
@@ -163,7 +163,7 @@ Per-item rejection reasons: `schema_invalid`, `type_not_allowed`, `options_not_d
 
 ## `start_quiz`
 
-Input: `{ path?: string, chunkId?: string, count?: number, lang?: string }`. Supply either a path scope or an exact leaf chunk ID (aliases accepted); supplying both is refused. With neither, select from the repository. `count` is an integer 1–10; actual size is clamped by `quiz.minQuestions` and the selected chunk's size. A quiz always concerns one chunk; finish and start again to review other chunks.
+Input: `{ path?: string, chunkId?: string, count?: number, lang?: string, includeCode?: boolean }`. Supply either a path scope or an exact leaf chunk ID (aliases accepted); supplying both is refused. With neither, select from the repository. `count` is an integer 1–10; actual size is clamped by `quiz.minQuestions` and the selected chunk's size. A quiz always concerns one chunk; finish and start again to review other chunks. `includeCode` (boolean, optional) controls the `code` preview. For a new session, omitted means `quiz.showCode` (default `true`), and the session stores the resulting value for its later `submit_answer` responses. For a resumed session, omitted means the session's stored value (`true` for a 0.1.x session file without one), not the current config; an explicit value applies to that response only and does not change the stored value. Elicitation prompts inside the same `start_quiz` call follow an explicit value too.
 
 ```ts
 type PublicQuestion = {
@@ -171,6 +171,15 @@ type PublicQuestion = {
   position: number; total: number; // position starts at 1
   stem: string;
   options: [Option, Option, Option, Option];
+  code?: CodePreview; // the quizzed chunk's current source; omitted when unavailable
+};
+type CodePreview = {
+  path: string;       // repository-relative POSIX path
+  startLine: number;  // 1-based, inclusive
+  endLine: number;    // 1-based, inclusive; the last line actually in `text`
+  language: string;   // e.g. 'typescript'; 'text' when unknown
+  text: string;       // exactly lines startLine..endLine (sanitized), joined with '\n'
+  truncated?: true;   // present only when the chunk was cut to 60 lines
 };
 type Option = { index: number; label: 'A' | 'B' | 'C' | 'D'; text: string };
 type SessionHeader = {
@@ -186,23 +195,39 @@ type StartQuizOutput = Ready & {
 
 Options are always displayed in index order 0–3 with labels A–D. Their texts are shuffled per question/session; never interpret display position as the stored key. The public question has exactly these fields, with no correctness, explanation or refs.
 
+`code` is the source of the chunk being quizzed, so the user can read the question against the code. It is a strict object with exactly the fields above (unknown fields fail the output schema). Lines are 1-based and inclusive and refer to the original file; `text` holds exactly `endLine - startLine + 1` lines. A chunk longer than 60 lines (`CODE_PREVIEW_MAX_LINES`) is cut to its first 60 lines and marked `truncated: true`; otherwise `truncated` is absent, never `false`. The 60-line cap, `endLine >= startLine` and the line-count match are enforced server-side; they are not expressible in the advertised JSON Schema. `code` is omitted, not null, when previews are off for the response (an explicit `includeCode: false`, or the session's stored setting is off; see the `includeCode` rules above) or when the source cannot be shown faithfully: the chunk is stale (the working-tree file no longer hashes to the scanned chunk, e.g. edited since the last `scan`), the file is missing or resolves outside the repository or inside `.gotchea/`, the chunk spans several ranges, or the resulting preview would fail its schema (e.g. a hand-edited chunk with an empty `lang`). Staleness is per chunk; other chunks keep their preview. The same rule applies to `next` in `submit_answer`, and the text content renders the preview as a fenced block above the stem. The preview is the working-tree source, so a quiz with previews is open book; it is built only from the chunk's source and never carries the explanation, refs, the correct option or any other answer hint. The source may legitimately contain words such as `correctIndex` or `explanation`; leak checks inspect object keys, not snippet text. In the CLI, `gotchea quiz` prints the same preview above each question; `--code` / `--no-code` override `quiz.showCode`; `gotchea quiz` has no `--json` output, and the `--json` outputs of `scan`, `status`, `map` and `generate` never contain quiz views or previews. `gotchea serve` has no quiz route and rejects a `code` key in API responses.
+
+`path`, `language` and every line of `text` are sanitized on the server before the view is built, so `structuredContent` already carries the safe form. Tab and newline are kept and CRLF becomes LF; other C0/C1 control characters and DEL become visible stand-ins (U+2400–U+241F, `␡`, `�`), and bidi controls (U+061C, U+200E/F, U+202A–U+202E, U+2066–U+2069) become the literal text `\u{XXXX}`. Lines are split before sanitizing, so a lone `\r` becomes `␍` rather than a line break: `text` keeps exactly `endLine - startLine + 1` lines but can differ byte-for-byte from the file. Stem and options differ: `structuredContent` keeps them as stored, and only the text content sanitizes them.
+
 `started` creates a server-side persisted session and returns its first question. An unfinished session with at least one recorded answer in the target scope may return `resumed`, preserving its permutations and returning the next unanswered question. A completely untouched active session is abandoned/replaced on a repeated start; the replacement draws fresh permutations. Random permutations may coincide across independent sessions, so clients must not require each consecutive order to differ.
 
 Start refusal reasons: `both_targets`, `unknown_chunk`, `not_leaf`, `no_match`, `no_quizzable_chunk`, `not_enough_questions`, `lang_invalid`. A refusal is an error result with structured status/reason and null question/result. Before scanning, the ordinary readiness response has null status/reason instead. Question pools must contain enough usable questions in the requested language.
 
-Optional elicitation: a client advertising `elicitation.form` can cause `start_quiz` to run the interaction internally when elicitation is enabled (default). Each accepted elicitation answer is recorded before its reveal is shown. `completed` then returns a final `result`, null `question`, and answer reveals in text; cancellation returns `cancelled` without scoring. Elicitation failures fall back to the two-tool flow, possibly with already-recorded reveals in text. For a deterministic Orchestea-managed `start_quiz`/`submit_answer` flow, do not advertise form elicitation, or launch with `GOTCHEA_MCP_ELICIT=off`.
+### Text display contract
+
+The default flow uses `start_quiz` and `submit_answer`. Every question presented in tool-result text, including a next question or an elicitation fallback, is enclosed between the exact marker lines `<<<SHOW TO USER VERBATIM` and `SHOW TO USER VERBATIM>>>`. The marked passage contains the code preview (when available) as a fenced block (language-tagged when `language` is a single word, and longer than any backtick run in the source) under a localized header such as `Code: path:startLine-endLine`, with ` (truncated)` added when cut, then the stem and every option in full, labeled A–D in display order. The agent must show the entire passage verbatim and ask for the user's answer; it must not answer the question itself. A selection widget may use only A–D as labels after the full text is shown. Any reveal of the previous answer stays outside the question markers.
+
+A reveal in tool-result text is enclosed in its own pair, the exact lines `<<<SHOW ANSWER FEEDBACK TO USER VERBATIM` and `SHOW ANSWER FEEDBACK TO USER VERBATIM>>>`. It holds the verdict, the correct option (only after a wrong answer), the explanation and a `Cited code:` section: one `path:startLine-endLine` header per ref (` (approximate)` / ` (truncated)` appended when they apply) followed by the excerpt as a fenced block when the ref has one. The agent must show it verbatim as well. A question block holds exactly one question and never a reveal; the two marker pairs never nest. Multi-line option, correct-answer and explanation text has its continuation lines indented by four spaces, and `<<<` / `>>>` inside any marked passage are replaced by `‹‹‹` / `›››`, so model-written text can neither open a Markdown fence, pose as a labelled line nor forge a marker. When a question has no `code`, one line outside the markers says that no preview is available (previews turned off, or the file changed since the last scan). The server also sends these rules as MCP `instructions` (`DISPLAY_INSTRUCTIONS`), because clients may truncate tool descriptions. These markers are a stable text contract for relaying questions; continue to use `structuredContent` for identifiers and application logic.
+
+### Optional elicitation
+
+Form elicitation is disabled by default. `GOTCHEA_MCP_ELICIT=on` or `auto` opts in for clients advertising `elicitation.form`; `off` explicitly selects the two-tool text flow. Each form message includes the code as plain numbered lines without Markdown fences, the stem and all options in full. `requestedSchema.answer.oneOf` uses display letters `A`, `B`, `C`, `D` as `const` values, with short, single-line titles: the label plus option text collapsed to one line and clipped to at most 24 code points (`ELICIT_TITLE_MAX`); the full text is in the form message. Numeric strings `"0"`–`"3"` are accepted temporarily for clients caching the old schema.
+
+A message over 6000 characters or a preview over 40 lines falls back to the complete text flow before presenting that question. Elicitation failures or invalid choices also fall back, possibly with already-recorded reveals in text. Each accepted answer is recorded before its reveal is shown. `completed` returns a final `result`, null `question`, and answer reveals in text; cancellation returns `cancelled` without scoring. For a deterministic Orchestea-managed `start_quiz`/`submit_answer` flow, keep the default or launch with `GOTCHEA_MCP_ELICIT=off`.
 
 ## `submit_answer`
 
-Input: `{ sessionId: string, questionId: string, displayIndex: number }`. `sessionId` must match `^qs_[0-9a-f]{16}$`; use the session ID returned by start. `questionId` identifies the current question. `displayIndex` is an integer 0–3, matching the **displayed** option chosen by the user (A=0, B=1, C=2, D=3). Ask the user and submit their choice; the integrating agent must not guess.
+Input: `{ sessionId: string, questionId: string, displayIndex: number, includeCode?: boolean }`. `sessionId` must match `^qs_[0-9a-f]{16}$`; use the session ID returned by start. `questionId` identifies the current question. `displayIndex` is an integer 0–3, matching the **displayed** option chosen by the user (A=0, B=1, C=2, D=3). Ask the user and submit their choice; the integrating agent must not guess. `includeCode` sets the `code` preview of `next` for this response only; omitted, the session's stored value applies (set at start from `includeCode` or `quiz.showCode`; `true` for a session without a stored value). Changing `quiz.showCode` after start does not affect a running session.
 
 ```ts
 type Reveal = {
   questionId: string; correct: boolean;
   selectedDisplayIndex: number; correctDisplayIndex: number; correctText: string;
   explanation: string;
-  refs: { path: string; startLine: number; endLine: number; approximate: boolean }[];
+  refs: { path: string; startLine: number; endLine: number; approximate: boolean; excerpt?: RefExcerpt }[];
 };
+// Strict object. At most 15 lines per ref and 30 per reveal; `truncated` is only ever true.
+type RefExcerpt = { language: string; text: string; truncated?: true };
 type SubmitAnswerOutput = Ready & {
   status: 'answered' | 'completed' | 'refused' | null;
   reason: string | null; repeat: boolean; sessionId: string | null;
@@ -225,7 +250,7 @@ type SessionResult = {
 type HeatCell = { id: string; title: string; color: Color; R: number | null };
 ```
 
-Answers are final and ordered. `answered` returns a reveal only for the submitted question and `next` as a public view. `completed` returns the last reveal plus a scored session result; `next` is null. Chunk progress is scored after the complete session, so do not expect a chunk to turn green after each individual answer. `needed` is the passing threshold; `passed` is the authoritative outcome. Reveal references use original file lines and may be marked approximate. A repeat of an already recorded identical answer within an active session can return `repeat: true`; do not assume replay remains successful after completion or expiry.
+Answers are final and ordered. `answered` returns a reveal only for the submitted question and `next` as a public view (including its optional `code` preview). `completed` returns the last reveal plus a scored session result; `next` is null. Chunk progress is scored after the complete session, so do not expect a chunk to turn green after each individual answer. `needed` is the passing threshold; `passed` is the authoritative outcome. Reveal references use original file lines and may be marked approximate. A ref carries an `excerpt` (the cited source lines, sanitized like `code.text`) only when the response's previews are on (same `includeCode` / stored-session rule as `code`), the chunk is still fresh, the ref is not `approximate` and the file is readable inside the repository; otherwise the ref keeps its numbers only. The excerpt exists only in the reveal of the question just answered, never before the answer. A repeat of an already recorded identical answer within an active session can return `repeat: true`; do not assume replay remains successful after completion or expiry.
 
 Submit refusal reasons: `unknown_session`, `session_expired`, `session_completed`, `chunk_changed`, `unknown_question`, `out_of_order`, `already_answered`, `invalid_index`, `question_unavailable`. Refusal outputs have `isError: true`, null reveal/progress/next/result, and a structured reason. An invalid input index normally fails input-schema validation before reaching semantic `invalid_index` handling. Before initialization, status/reason are null and readiness flags false.
 
@@ -237,10 +262,10 @@ Before an answer is submitted, recursively reject these object keys in tool outp
 
 ```text
 correctIndex, correctDisplayIndex, correctOptionIndex, correctText,
-explanation, refs, answer, key
+explanation, refs, excerpt, answer, key
 ```
 
-This list is `FORBIDDEN_KEYS` in `packages/core/src/quiz/views.ts`; keep integration checks aligned with that export. Public questions are strict-schema checked and deep-scanned. Metadata/instruction strings may describe private schema field names without carrying an answer. Generation tasks expose existing stems only; save responses do not echo questions. After submission, only the just-answered question's reveal contains correctness, explanation and refs; `next` must retain the public shape. In elicitation mode, accepted answers are submissions inside `start_quiz`, so their later text reveals are post-answer data.
+This list is `FORBIDDEN_KEYS` in `packages/core/src/quiz/views.ts`; keep integration checks aligned with that export. Public questions, including an optional `code` preview, are strict-schema checked and deep-scanned. The scan matches keys, not string values, so a snippet that mentions these names is not a leak. Metadata/instruction strings may describe private schema field names without carrying an answer. Generation tasks expose existing stems only; save responses do not echo questions. After submission, only the just-answered question's reveal contains correctness, explanation and refs; `next` must retain the public shape. In elicitation mode, accepted answers are submissions inside `start_quiz`, so their later text reveals are post-answer data.
 
 There are deliberate private-data locations: shared question JSON contains keys, and a generating host already knows the questions it wrote. Generate in a subagent or separate session to keep that knowledge outside the agent context used for the user's quiz. Never expose stored question JSON as pre-answer UI data.
 
@@ -257,6 +282,6 @@ There are deliberate private-data locations: shared question JSON contains keys,
 
 ## Snapshot maintenance and review
 
-Run the contract E2E test against the built local server. It compares actual tool names/input schemas with `tools.snapshot.json`; deletion, renaming, required-argument additions and other schema drift fail the comparison. Set `UPDATE_CONTRACT=1` for an intentional refresh, or use `pnpm e2e:update-contract`. Review the generated diff and update this document with any changed response semantics before accepting a new baseline. Updating a snapshot accepts compatibility changes; it does not establish that an Orchestea client already supports them. The input snapshot does not replace response, happy-path, storage and leak tests.
+Run the contract E2E test against the built local server. It compares the actual server instructions and each tool's name, description and input/output schemas with `tools.snapshot.json`; deletion, renaming, required-argument additions, output-field changes and other schema drift fail the comparison. Set `UPDATE_CONTRACT=1` for an intentional refresh, or use `pnpm e2e:update-contract`. Review the generated diff and update this document with any changed response semantics before accepting a new baseline. Updating a snapshot accepts compatibility changes; it does not establish that an Orchestea client already supports them. The schema snapshot does not replace response, happy-path, storage and leak tests; `test/code-preview-leak.test.ts` covers the `code` preview and the reveal excerpts end to end over MCP and the CLI.
 
 Implementation references: `packages/mcp/src/server.ts`, `packages/mcp/src/schemas.ts`, `packages/mcp/src/context.ts`, `packages/mcp/src/tools/`, `packages/core/src/ops/quiz.ts`, `packages/core/src/quiz/views.ts`, `packages/core/src/generate/{schema,save,validate}.ts`, and `packages/core/src/store/paths.ts`. `PLAN.md` §6 defines the answer-isolation promise; current strict schemas define the actual wire fields.

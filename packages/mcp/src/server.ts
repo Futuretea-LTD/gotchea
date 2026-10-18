@@ -9,12 +9,13 @@ import { registerGetStatus } from './tools/get_status.js';
 import { registerSaveQuestions } from './tools/save_questions.js';
 import { registerScan } from './tools/scan.js';
 import { registerStartQuiz } from './tools/start_quiz.js';
+import { DISPLAY_INSTRUCTIONS } from './tools/quiz-text.js';
 import { registerSubmitAnswer } from './tools/submit_answer.js';
 
 export type { ServerOptions } from './context.js';
 
 export function createServer(opts: ServerOptions = {}): McpServer {
-  const server = new McpServer({ name: 'gotchea', version: VERSION });
+  const server = new McpServer({ name: 'gotchea', version: VERSION }, { instructions: DISPLAY_INSTRUCTIONS });
   const ctx = createToolContext(opts);
   registerScan(server, ctx);
   registerGetMap(server, ctx);

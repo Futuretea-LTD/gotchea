@@ -2,8 +2,11 @@
 // core, but every body is still scanned for answer-bearing keys before it leaves the process.
 import { FORBIDDEN_KEYS } from 'gotchea-core';
 
-/** Keys no API response may carry, at any depth: the answer keys plus question text. */
-export const SERVE_FORBIDDEN_KEYS: readonly string[] = [...FORBIDDEN_KEYS, 'options', 'stem'];
+/**
+ * Keys no API response may carry, at any depth: the answer keys, question text and the quiz code
+ * preview. serve has no quiz route, so `code` can only appear here by a quiz view leaking in.
+ */
+export const SERVE_FORBIDDEN_KEYS: readonly string[] = [...FORBIDDEN_KEYS, 'options', 'stem', 'code'];
 
 const FORBIDDEN = new Set(SERVE_FORBIDDEN_KEYS);
 

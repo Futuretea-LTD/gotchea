@@ -12,21 +12,84 @@ export const LABELS = ['A', 'B', 'C', 'D'] as const;
 
 const OptionViewSchema = z.strictObject({ index: z.number().int().min(0).max(3), label: z.enum(LABELS), text: z.string() });
 
-/** Crosses the interface boundary BEFORE submit. Nothing else may. */
-export const PublicQuestionViewSchema = z
+/** Longest code preview sent with a question; longer chunks are cut and marked `truncated`. */
+export const CODE_PREVIEW_MAX_LINES = 60;
+
+/**
+ * The chunk's current source, shown with the question. It is the code the question is about, so
+ * it gives nothing away the user could not read in their editor; it never carries refs, the
+ * explanation or anything else derived from the answer.
+ */
+export const PublicCodePreviewSchema = z
   .strictObject({
-    questionId: z.string().regex(/^q_[0-9a-f]{12}$/),
-    /** 1-based position in the session. */
-    position: z.number().int().min(1),
-    total: z.number().int().min(1),
-    stem: z.string(),
-    options: z.tuple([OptionViewSchema, OptionViewSchema, OptionViewSchema, OptionViewSchema]),
+    /** Repo-relative, POSIX separators. */
+    path: z.string().min(1),
+    /** 1-based, inclusive: the lines actually in `text`. */
+    startLine: z.number().int().min(1),
+    endLine: z.number().int().min(1),
+    language: z.string().min(1),
+    text: z.string(),
+    /** Present only when the chunk is longer than `CODE_PREVIEW_MAX_LINES`. */
+    truncated: z.literal(true).optional(),
   })
-  .refine((v) => v.options.every((o, i) => o.index === i && o.label === LABELS[i]), 'options must be indexed 0-3 in order');
+  .refine((c) => c.endLine >= c.startLine, 'endLine must be >= startLine')
+  .refine((c) => c.endLine - c.startLine + 1 <= CODE_PREVIEW_MAX_LINES, `at most ${CODE_PREVIEW_MAX_LINES} lines`)
+  .refine((c) => c.text.split('\n').length === c.endLine - c.startLine + 1, 'text must hold exactly startLine..endLine');
+
+export type PublicCodePreview = z.infer<typeof PublicCodePreviewSchema>;
+
+/**
+ * Crosses the interface boundary BEFORE submit. Nothing else may. The order check sits on the
+ * tuple, not the object, so interfaces can still `.omit()` a field from this schema.
+ */
+export const PublicQuestionViewSchema = z.strictObject({
+  questionId: z.string().regex(/^q_[0-9a-f]{12}$/),
+  /** 1-based position in the session. */
+  position: z.number().int().min(1),
+  total: z.number().int().min(1),
+  stem: z.string(),
+  options: z
+    .tuple([OptionViewSchema, OptionViewSchema, OptionViewSchema, OptionViewSchema])
+    .refine((options) => options.every((o, i) => o.index === i && o.label === LABELS[i]), 'options must be indexed 0-3 in order'),
+  /** Absent when the working tree no longer matches the scanned chunk, or when disabled. */
+  code: PublicCodePreviewSchema.optional(),
+});
 
 export type PublicQuestionView = z.infer<typeof PublicQuestionViewSchema>;
 
-export const RevealRefSchema = z.strictObject({ path: z.string(), startLine: z.number().int(), endLine: z.number().int(), approximate: z.boolean() });
+/**
+ * Builds a preview from the raw lines of `startLine..` (the whole chunk range), keeping at most
+ * `CODE_PREVIEW_MAX_LINES`. Null for an empty slice, which the schema could not describe.
+ */
+export function codePreview(path: string, startLine: number, language: string, lines: readonly string[]): PublicCodePreview | null {
+  if (lines.length === 0 || !Number.isInteger(startLine) || startLine < 1) return null;
+  const kept = lines.slice(0, CODE_PREVIEW_MAX_LINES);
+  const preview: PublicCodePreview = { path, startLine, endLine: startLine + kept.length - 1, language, text: kept.join('\n') };
+  return lines.length > CODE_PREVIEW_MAX_LINES ? { ...preview, truncated: true } : preview;
+}
+
+/** Longest source excerpt attached to one reveal ref, and to a whole reveal. */
+export const REF_EXCERPT_MAX_LINES = 15;
+export const REVEAL_EXCERPT_MAX_LINES = 30;
+
+/**
+ * The cited lines, sanitized. Only ever part of a reveal, after the answer was recorded; absent
+ * when previews are off, the chunk is stale or the ref is approximate.
+ */
+export const RefExcerptSchema = z.strictObject({
+  language: z.string().min(1),
+  text: z.string(),
+  /** Present only when the ref is longer than the excerpt caps allow. */
+  truncated: z.literal(true).optional(),
+});
+
+export const RevealRefSchema = z.strictObject({
+  path: z.string(),
+  startLine: z.number().int(),
+  endLine: z.number().int(),
+  approximate: z.boolean(),
+  excerpt: RefExcerptSchema.optional(),
+});
 
 /** Crosses the boundary only AFTER the answer for that question was recorded. */
 export const RevealViewSchema = z.strictObject({
@@ -51,10 +114,13 @@ export interface PrivateQuestionView extends PublicQuestionView {
 }
 
 /** Keys that must never appear in a pre-submit value, at any depth. */
-export const FORBIDDEN_KEYS = ['correctIndex', 'correctDisplayIndex', 'correctOptionIndex', 'correctText', 'explanation', 'refs', 'answer', 'key'] as const;
+export const FORBIDDEN_KEYS = ['correctIndex', 'correctDisplayIndex', 'correctOptionIndex', 'correctText', 'explanation', 'refs', 'excerpt', 'answer', 'key'] as const;
 
 const FORBIDDEN = new Set<string>(FORBIDDEN_KEYS);
 
+// Keys only, never string values: `code.text` is real source and may legitimately say
+// `explanation` or `correctIndex` (gotchea's own code does). A key is what would carry a leaked
+// field; a word inside a snippet carries nothing.
 function scanKeys(v: unknown, path: string): void {
   if (Array.isArray(v)) {
     for (const [i, x] of v.entries()) scanKeys(x, `${path}[${i}]`);
@@ -76,8 +142,18 @@ const display = (q: Pick<QuestionPrivate, 'options'>, perm: Permutation): Public
   [0, 1, 2, 3].map((d) => ({ index: d, label: LABELS[d]!, text: q.options[perm[d]!]! })) as PublicQuestionView['options'];
 
 /** Copies fields explicitly. The parameter type cannot even name the key. */
-export function toPublicView(q: Pick<QuestionPrivate, 'id' | 'stem' | 'options'>, perm: Permutation, position: number, total: number): PublicQuestionView {
-  return { questionId: q.id, position, total, stem: q.stem, options: display(q, perm) };
+export function toPublicView(
+  q: Pick<QuestionPrivate, 'id' | 'stem' | 'options'>,
+  perm: Permutation,
+  position: number,
+  total: number,
+  code?: PublicCodePreview | null,
+): PublicQuestionView {
+  const view: PublicQuestionView = { questionId: q.id, position, total, stem: q.stem, options: display(q, perm) };
+  if (!code) return view;
+  // Copied field by field, like the question, so an extra key on the argument can't ride along.
+  const { path, startLine, endLine, language, text, truncated } = code;
+  return { ...view, code: { path, startLine, endLine, language, text, ...(truncated ? { truncated } : {}) } };
 }
 
 export function toPrivateView(q: QuestionPrivate, perm: Permutation, position: number, total: number): PrivateQuestionView {

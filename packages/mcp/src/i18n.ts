@@ -1,4 +1,6 @@
-// MCP map copy only: messages receive counts and fixed hints, never question data.
+// MCP map and code-preview copy only: messages receive counts, paths and fixed hints, never question data.
+const span = (start: number, end: number): string => `${start}-${end}`;
+
 const en = {
   generateQuestions: 'generate questions',
   takeQuiz: 'take a quiz',
@@ -7,9 +9,14 @@ const en = {
   mapSummary: (chunks: number, questions: number, next: string): string =>
     `${chunks} ${chunks === 1 ? 'chunk' : 'chunks'} · ${questions} ${questions === 1 ? 'question' : 'questions'} · next step: ${next}`,
   questionCount: (count: number): string => `${count} ${count === 1 ? 'question' : 'questions'}`,
+  codeHeader: (path: string, start: number, end: number, truncated: boolean): string =>
+    `Code: ${path}:${span(start, end)}${truncated ? ' (truncated)' : ''}`,
+  citedCode: 'Cited code:',
+  refHeader: (path: string, start: number, end: number, approximate: boolean, truncated: boolean): string =>
+    `${path}:${span(start, end)}${approximate ? ' (approximate)' : ''}${truncated ? ' (truncated)' : ''}`,
 };
 
-type Messages = typeof en;
+export type Messages = typeof en;
 
 export const messages: Record<'en' | 'tr', Messages> = {
   en,
@@ -20,6 +27,10 @@ export const messages: Record<'en' | 'tr', Messages> = {
     allGreen: 'hepsi yeşil',
     mapSummary: (chunks, questions, next) => `${chunks} chunk · ${questions} soru · sonraki adım: ${next}`,
     questionCount: (count) => `${count} soru`,
+    codeHeader: (path, start, end, truncated) => `Kod: ${path}:${span(start, end)}${truncated ? ' (kısaltıldı)' : ''}`,
+    citedCode: 'Anılan kod:',
+    refHeader: (path, start, end, approximate, truncated) =>
+      `${path}:${span(start, end)}${approximate ? ' (yaklaşık)' : ''}${truncated ? ' (kısaltıldı)' : ''}`,
   },
 };
 

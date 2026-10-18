@@ -3,7 +3,7 @@
 import type { MapJson, StatusJson } from './model.js';
 
 // Mirror the serve guard without importing core runtime code into the browser bundle.
-const FORBIDDEN_MAP_KEYS = new Set(['correctIndex', 'correctDisplayIndex', 'correctOptionIndex', 'correctText', 'explanation', 'refs', 'answer', 'key', 'options', 'stem']);
+const FORBIDDEN_MAP_KEYS = new Set(['correctIndex', 'correctDisplayIndex', 'correctOptionIndex', 'correctText', 'explanation', 'refs', 'excerpt', 'answer', 'key', 'options', 'stem']);
 
 function hasAnswerData(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(hasAnswerData);

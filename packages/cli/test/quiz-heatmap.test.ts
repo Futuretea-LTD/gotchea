@@ -90,8 +90,11 @@ describe('no leak before answering (scripted source with a probe)', () => {
     expect(plain.slice(offsets[0]!, plain.indexOf('Explanation:'))).not.toMatch(/Look at|correctIndex/);
     // The question views handed to the source never carry more than the public keys.
     for (const q of src.asked) {
-      expect(Object.keys(q).sort()).toEqual(['options', 'position', 'questionId', 'stem', 'total']);
-      expect([...allKeys(q)].filter((k) => /correct|explanation|refs|Line/.test(k))).toEqual([]);
+      expect(Object.keys(q).sort()).toEqual(['code', 'options', 'position', 'questionId', 'stem', 'total']);
+      // The preview's own line span is the only `*Line` key allowed; anything else could be a ref.
+      expect(Object.keys(q.code!).sort()).toEqual(['endLine', 'language', 'path', 'startLine', 'text']);
+      const { code: _code, ...rest } = q;
+      expect([...allKeys(rest)].filter((k) => /correct|explanation|refs|Line/.test(k))).toEqual([]);
       expect(JSON.stringify(q)).not.toMatch(/LEAKPROBE-EXPL/);
     }
     // The reveal path did run: the wrong answer printed the key and the explanation.

@@ -22,8 +22,8 @@ export interface ServerOptions {
   /** Randomness for question order and option permutations; tests only. */
   rng?: Rng;
   /**
-   * Elicitation is optional and capability-gated: `auto` (default) offers a multiple-choice prompt only
-   * when the connected client advertises `elicitation`; `off` never does. Env: GOTCHEA_MCP_ELICIT=off.
+   * Elicitation is optional and capability-gated: `off` (default) uses text; `auto` offers a multiple-choice prompt only
+   * when the connected client advertises `elicitation`; `off` never does. Env: GOTCHEA_MCP_ELICIT=on|auto opts in; off disables it.
    */
   elicitation?: 'auto' | 'off';
 }
@@ -65,7 +65,7 @@ export function createToolContext(opts: ServerOptions = {}): ToolContext {
     await s.recover();
     return s;
   };
-  const elicitation = opts.elicitation ?? (env['GOTCHEA_MCP_ELICIT'] === 'off' ? 'off' : 'auto');
+  const elicitation = opts.elicitation ?? (['on', 'auto'].includes(env['GOTCHEA_MCP_ELICIT'] ?? '') ? 'auto' : 'off');
   return {
     root,
     env,

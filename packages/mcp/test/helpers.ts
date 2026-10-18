@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult, ClientCapabilities } from '@modelcontextprotocol/sdk/types.js';
-import { FsChunkStore, initConfig, runScan, type Rng } from 'gotchea-core';
+import { FsChunkStore, chunkLineCount, initConfig, runScan, type Rng } from 'gotchea-core';
 import { FsQuestionStore, type QuestionPrivate } from 'gotchea-core/internal';
 import { createServer } from '../src/index.js';
 
@@ -118,3 +118,44 @@ export async function connect(
 
 export const text = (res: unknown): string =>
   ((res as CallToolResult).content as { type: string; text?: string }[]).map((c) => c.text ?? '').join('\n');
+
+/**
+ * Overwrites `path` with `source`, rescans and seeds `count` ok questions on that leaf, with exact
+ * refs (so reveals carry excerpts). `build(i)` overrides fields per question; options default to four plain ones.
+ */
+export async function seedLeaf(
+  repo: { root: string; env: NodeJS.ProcessEnv },
+  path: string,
+  source: string,
+  build: (i: number) => Partial<QuestionPrivate>,
+  count = 3,
+): Promise<string> {
+  await mkdir(dirname(join(repo.root, path)), { recursive: true });
+  await writeFile(join(repo.root, path), source);
+  await initConfig(repo.root);
+  await runScan(repo.root, { env: repo.env });
+  const chunk = (await new FsChunkStore(repo.root).load())!.chunks.find((c) => c.id === path)!;
+  const qs: QuestionPrivate[] = Array.from({ length: count }, (_, i) => ({
+    id: `q_${String(i + 1).padStart(12, '0')}`,
+    chunkId: chunk.id,
+    chunkHash: chunk.contentHash,
+    chunkLines: chunkLineCount(chunk),
+    type: 'behavior',
+    stem: `Stem ${i}`,
+    options: ['Option a', 'Option b', 'Option c', 'Option d'],
+    correctIndex: (i % 4) as 0 | 1 | 2 | 3,
+    explanation: `Because ${i}.`,
+    refs: [{ start: 1, end: 2 }],
+    difficulty: 1,
+    lang: 'en',
+    generatedBy: 'test',
+    promptVersion: 'p1',
+    status: 'ok',
+    flagged: false,
+    verifiedBy: null,
+    createdAt: NOW.toISOString(),
+    ...build(i),
+  }));
+  await new FsQuestionStore(repo.root).save(chunk.id, qs);
+  return chunk.id;
+}

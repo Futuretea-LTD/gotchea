@@ -58,7 +58,8 @@ export async function createContext(io: CliIo, opts: GlobalOptions): Promise<Com
   const dir = resolve(io.cwd, opts.cwd ?? '.');
   const info = await stat(dir).catch(() => null);
   if (!info?.isDirectory()) throw new CliError(`--cwd: not a directory: ${dir}`);
-  const colors = pc.createColors(io.color && opts.color !== false);
+  // NO_COLOR (no-color.org) also holds for an injected io, not only for picocolors' own process check.
+  const colors = pc.createColors(io.color && opts.color !== false && !io.env.NO_COLOR);
   return {
     io,
     pc: colors,

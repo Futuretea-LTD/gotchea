@@ -3,6 +3,7 @@
 // that backs `get_map`, so the two always agree.
 import type { Chunk, ChunkKind } from '../model/chunk.js';
 import type { ChunkColor, ChunkState } from '../model/progress.js';
+import { sanitizeTerminalText } from '../quiz/sanitize.js';
 import { HEAT, ansiPaint } from './palette.js';
 
 const MAX_FILE_LEAVES = 12;
@@ -61,7 +62,9 @@ const LETTER: Record<ChunkColor, string> = { grey: '-', red: 'R', yellow: 'Y', g
  */
 export function renderMiniHeatmapText(h: MiniHeatmap, mode: 'emoji' | 'ansi' | 'plain', paint?: (c: ChunkColor) => (s: string) => string): string {
   const pct = (R: number | null): string => (R === null ? '' : ` ${Math.round(R * 100)}%`);
-  const cell = (c: { color: ChunkColor; R: number | null }, label: string): string => {
+  const cell = (c: { color: ChunkColor; R: number | null }, raw: string): string => {
+    // Titles come from hand-editable chunks.json and are printed to a terminal or agent context.
+    const label = sanitizeTerminalText(raw);
     if (mode === 'emoji') return `${HEAT[c.color].emoji} ${label}`;
     if (mode === 'plain') return `[${LETTER[c.color]}${pct(c.R)}] ${label}`;
     return `${(paint?.(c.color) ?? ((s) => ansiPaint(c.color, s)))('●')} ${label}`;

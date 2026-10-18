@@ -88,7 +88,7 @@ npx gotchea quiz 'src/math.ts#clamp'    # one leaf chunk (id or alias)
 npx gotchea quiz --count 3 --lang tr --new
 ```
 
-The quiz runs in your terminal (it needs a TTY). Pick an answer with the arrow keys and Enter; after each answer you see whether it was right, the correct option, the explanation and the line references. After the last question you get pass or fail, the chunk's color change and a mini heat map. To pass you need 75% correct (`quiz.passRatio`). An unfinished quiz is offered for resume next time (`--new` starts fresh), and Ctrl-C abandons it without scoring. If the chunk has too few questions, `quiz` offers to run `generate` for it.
+The quiz runs in your terminal (it needs a TTY). Each question shows the chunk's current source above it, with line numbers. Set `quiz.showCode` to `false` in `.gotchea/config.json` to hide it by default (default `true`); `--code` / `--no-code` override the config for one run. With the code on screen the quiz is open book: it tests whether you can read the code, not whether you remember it. Pick an answer with the arrow keys and Enter; after each answer you see whether it was right, the correct option, the explanation and the line references. After the last question you get pass or fail, the chunk's color change and a mini heat map. To pass you need 75% correct (`quiz.passRatio`). An unfinished quiz is offered for resume next time (`--new` starts fresh), and Ctrl-C abandons it without scoring. If the chunk has too few questions, `quiz` offers to run `generate` for it.
 
 ### 5. Map and serve
 
@@ -114,7 +114,7 @@ Every command accepts the global options `--cwd <dir>` (run as if started in `<d
 | `status` | `--json` | Show tracked chunks, questions, what is due and the color distribution. |
 | `map [path]` | `--json` | Show the heat map (repo > module > file > symbol), optionally for one directory, file or chunk id. |
 | `generate` | `--chunk <id>` `--provider <name>` `--model <id>` `--lang <code>` `--limit <n>` `--verify` / `--no-verify` `--dry-run` `--json` | Generate questions with an LLM provider for the chunks that need them most. |
-| `quiz [target]` | `--count <n>` (1–10) `--lang <code>` `--new` | Quiz yourself on a chunk: the one that most needs review under `target`, or the named leaf. |
+| `quiz [target]` | `--count <n>` (1–10) `--lang <code>` `--new` `--code` / `--no-code` | Quiz yourself on a chunk: the one that most needs review under `target`, or the named leaf. |
 | `serve [path]` | `--port <n>` (default 4477, 0 = any free port) `--no-open` | Serve the read-only web heat map on 127.0.0.1 until Ctrl+C. |
 | `mcp` | | Start the MCP server on stdio (for Claude Code, Codex and other MCP clients). |
 
@@ -137,10 +137,10 @@ npx -y gotchea-mcp       # alternative: the standalone server package (uses the 
 | `get_status` | Tracked chunk count, question count, reviews due now and the color distribution of the leaf chunks. |
 | `get_generation_tasks` | The next chunks that need questions (`limit` 1–10, default 3; optional `lang`): numbered code, import signatures, existing stems only, and the instructions. |
 | `save_questions` | Save the questions written for one task (`chunkId`, `chunkHash`, `questions`). Refused as a whole if the code changed; otherwise each question is validated and rejects come back as `{ index, reason, detail }`. |
-| `start_quiz` | Start (or resume) a quiz on one chunk, by `path` or `chunkId`, optional `count` and `lang`. Returns the first question only. |
-| `submit_answer` | Submit the user's choice (`sessionId`, `questionId`, `displayIndex` A=0…D=3). Returns the reveal for that question, then the next question or the result. |
+| `start_quiz` | Start (or resume) a quiz on one chunk, by `path` or `chunkId`, optional `count`, `lang` and `includeCode`. Returns the first question only, with the chunk's current source as `code` (left out if the file changed since the last scan, or with `includeCode: false`; a new session defaults to `quiz.showCode`, a resumed one to its own setting). |
+| `submit_answer` | Submit the user's choice (`sessionId`, `questionId`, `displayIndex` A=0…D=3; optional `includeCode`, default the session's setting). Returns the reveal for that question, including the cited lines of code (up to 15 per reference and 30 per reply; left out when previews are off, the file changed since the last scan, or the reference is approximate), then the next question or the result. |
 
-No tool output contains a correct answer or an explanation before the question has been answered; sessions and the answer key stay on the server. Without a `.gotchea` directory the tools reply with a "run `gotchea init`" message instead of an error. If the client supports MCP form elicitation, `start_quiz` asks you the questions directly through the client's UI, so the model never sees them before you answer (set `GOTCHEA_MCP_ELICIT=off` to disable).
+No tool output contains a correct answer or an explanation before the question has been answered; sessions and the answer key stay on the server. Without a `.gotchea` directory the tools reply with a "run `gotchea init`" message instead of an error. Form elicitation is opt-in: set `GOTCHEA_MCP_ELICIT=on` (or `auto`) and use a client that supports forms, and `start_quiz` asks you the questions through the client's form UI. By default the quiz uses the text flow, where the agent relays the marked block verbatim. Long messages or code previews over 40 lines fall back to the text flow.
 
 ### Claude Code
 
@@ -207,7 +207,7 @@ Your knowledge decays in two ways:
 |---|---|
 | `GOTCHEA_HOME` | Where personal state lives: progress, quiz sessions, code snapshots and the scan cache, under `repos/<repoId>/` (default `~/.gotchea`). Shared repo state always stays in `<repo>/.gotchea/` and is not affected. |
 | `GOTCHEA_LOCK_TIMEOUT_MS` | How long to wait for the per-repo lock before giving up (default 30000). |
-| `GOTCHEA_MCP_ELICIT` | `off` disables quiz elicitation in the MCP server. |
+| `GOTCHEA_MCP_ELICIT` | `on` or `auto` enables quiz form elicitation in the MCP server (default: off, text flow). |
 | `GOTCHEA_DEBUG` | Print stack traces for unexpected errors. |
 | `ANTHROPIC_API_KEY` | API key for the default `anthropic` provider. |
 | `ANTHROPIC_BASE_URL` | Sends `anthropic` provider requests to another base URL, such as a proxy or gateway (default: the Anthropic SDK's endpoint). |

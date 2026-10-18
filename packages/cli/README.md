@@ -33,7 +33,7 @@ npx gotchea init      # or run it without installing
 | `status` | `--json` |
 | `map [path]` | `--json` |
 | `generate` | `--chunk <id>` `--provider <anthropic\|openai\|openai-compatible>` `--model <id>` `--lang <code>` `--limit <n>` `--verify` / `--no-verify` `--dry-run` `--json` |
-| `quiz [target]` | `--count <n>` `--lang <code>` `--new` |
+| `quiz [target]` | `--count <n>` `--lang <code>` `--new` `--code` / `--no-code` (default: config `quiz.showCode`) |
 | `serve [path]` | `--port <n>` `--no-open` |
 | `mcp` | starts the MCP server on stdio |
 
@@ -63,7 +63,7 @@ Generate questions in a subagent or a separate session, never in the conversatio
 |---|---|
 | `GOTCHEA_HOME` | Where personal progress, quiz sessions, snapshots and the scan cache live (default `~/.gotchea`). Shared state stays in `<repo>/.gotchea/`. |
 | `GOTCHEA_LOCK_TIMEOUT_MS` | How long to wait for the per-repo lock (default 30000). |
-| `GOTCHEA_MCP_ELICIT` | `off` disables quiz elicitation in `gotchea mcp`. |
+| `GOTCHEA_MCP_ELICIT` | `on` or `auto` enables quiz form elicitation in `gotchea mcp` (default: off, text flow). |
 | `GOTCHEA_DEBUG` | Print stack traces for unexpected errors. |
 | `ANTHROPIC_API_KEY` | API key for the default `anthropic` provider of `generate`. |
 | `ANTHROPIC_BASE_URL` | Another base URL for the `anthropic` provider, such as a proxy or gateway (default: the Anthropic SDK's endpoint). |

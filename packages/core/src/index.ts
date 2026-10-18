@@ -260,15 +260,19 @@ export {
   type SessionStatus,
 } from './quiz/session.js';
 export {
+  CODE_PREVIEW_MAX_LINES,
   FORBIDDEN_KEYS,
   LABELS,
+  PublicCodePreviewSchema,
   PublicQuestionViewSchema,
   RevealRefSchema,
   RevealViewSchema,
   assertPublicView,
+  type PublicCodePreview,
   type PublicQuestionView,
   type RevealView,
 } from './quiz/views.js';
+export { sanitizeTerminalText } from './quiz/sanitize.js';
 export { ensureReconciled, type EnsureReconciledOptions, type ReconcileOutcome } from './ops/reconcile.js';
 export {
   abandonQuiz,

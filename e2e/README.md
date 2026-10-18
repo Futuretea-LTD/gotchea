@@ -44,8 +44,8 @@ Published releases support time travel only if they include `GOTCHEA_NOW` suppor
 ## Contract and scenarios
 
 `test/contract.test.ts` compares the live SDK `tools/list` response (all tool names
-and complete input schemas) with `contract/tools.snapshot.json`. Removed or renamed
-tools, new required parameters, and any other input-schema drift fail the test.
+and complete input and output schemas) with `contract/tools.snapshot.json`. Removed or
+renamed tools, new required parameters, and any other schema drift fail the test.
 Review intentional changes against [CONTRACT.md](contract/CONTRACT.md), then refresh:
 
 ```sh
@@ -68,6 +68,16 @@ and rejected save items. It uses the current core `FORBIDDEN_KEYS` list and a pr
 explanation sentinel. Shuffle verification completes eight sessions and checks the
 same question IDs across them; it does not confuse a resumed session with a fresh one.
 There is a residual random false-failure probability of at most `24^-7` per question.
+
+`code-preview-leak.test.ts` adds a fixture whose source contains the words `correctIndex`
+and `explanation`, then checks the quiz `code` preview over MCP (`start_quiz`, every `next`)
+and the CLI: the exact chunk lines when fresh, no preview after an unscanned edit, and
+no forbidden key, correct-option text (outside its option line) or explanation in any
+pre-answer output, including every CLI `--json` output. `gotchea quiz` needs a TTY, so it
+runs under a Python `pty` and is cancelled at the first question; without `python3` that
+part is skipped. A second fixture plants an OSC 8 link and a clear-screen (`ESC[2J`) in the
+source: with `NO_COLOR=1`, everything gotchea prints carries no ESC (the sequences show as
+`␛…␇` stand-ins), and past the prompt library's own cursor codes no ESC or BEL is left.
 
 `storage.test.ts` completes quizzes, checks shared files in the fixture repo, verifies
 that the only progress file is under the redirected HOME, and checks persistence after

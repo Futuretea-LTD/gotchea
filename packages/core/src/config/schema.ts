@@ -70,6 +70,8 @@ export const QuizConfigSchema = z.object({
   sessionTtlMinutes: z.number().int().min(1).default(120),
   /** Finished or expired session files are deleted after this many days. */
   sessionRetentionDays: z.number().int().min(0).default(7),
+  /** Show a working-tree code preview with each question. Makes the quiz "open book"; turn off for a recall test. */
+  showCode: z.boolean().default(true),
 });
 
 export const ScoreConfigSchema = z
