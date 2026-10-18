@@ -313,3 +313,56 @@ describe('quiz.showCode', () => {
     expect(answered.next.code).toMatchObject({ path: MATH });
   });
 });
+
+describe('reveal ref excerpts', () => {
+  const MATH_LINES = MATH_SRC.split('\n');
+  const answer = async (d: QuizOpsDeps, input: { includeCode?: boolean } = {}) => {
+    const res = await start({ chunkId: MATH }, d);
+    const answered = await submitAnswer(root, { sessionId: res.session.id, questionId: res.question.questionId, displayIndex: 0, ...input }, d);
+    if (answered.status !== 'answered') throw new Error(answered.status);
+    return answered;
+  };
+
+  it('attaches the cited lines to a fresh, exact ref', async () => {
+    const { reveal } = await answer(deps());
+    expect(reveal.refs).toEqual([{ path: MATH, startLine: 1, endLine: 2, approximate: false, excerpt: { language: 'typescript', text: MATH_LINES.slice(0, 2).join('\n') } }]);
+  });
+
+  it('is absent when includeCode is false or the session was started without code', async () => {
+    expect((await answer(deps(), { includeCode: false })).reveal.refs[0]).not.toHaveProperty('excerpt');
+    expect((await answer(deps(noCode))).reveal.refs[0]).not.toHaveProperty('excerpt');
+  });
+
+  it('is absent for an approximate ref', async () => {
+    const chunk = await leafOf(MATH);
+    const store = new FsQuestionStore(root);
+    await store.save(chunk.id, (await store.list(chunk.id)).map((q) => ({ ...q, chunkLines: chunkLineCount(chunk) + 3 })));
+    const { reveal } = await answer(deps());
+    expect(reveal.refs[0]).toMatchObject({ approximate: true });
+    expect(reveal.refs[0]).not.toHaveProperty('excerpt');
+  });
+
+  it('is capped per ref and per reveal, and marked truncated', async () => {
+    const chunk = await leafOf(LONG);
+    await seed(chunk);
+    const store = new FsQuestionStore(root);
+    const refs = [{ start: 1, end: 20 }, { start: 21, end: 40 }, { start: 41, end: 42 }];
+    await store.save(chunk.id, (await store.list(chunk.id)).map((q) => ({ ...q, refs })));
+    const d = deps();
+    const res = await start({ chunkId: LONG }, d);
+    const answered = await submitAnswer(root, { sessionId: res.session.id, questionId: res.question.questionId, displayIndex: 0 }, d);
+    if (answered.status !== 'answered') throw new Error(answered.status);
+    // 15 + 15 uses the 30-line reveal budget, so the third ref keeps its numbers only.
+    expect(answered.reveal.refs.map((r) => r.excerpt?.text.split('\n').length ?? 0)).toEqual([15, 15, 0]);
+    expect(answered.reveal.refs[0]!.excerpt!.truncated).toBe(true);
+    expect(answered.reveal.refs[2]).not.toHaveProperty('excerpt');
+  });
+
+  it('is absent when the file changed after the answer was recorded against a fresh scan', async () => {
+    const d = deps();
+    const res = await start({ chunkId: MATH }, d);
+    await write(MATH, `// edited\n${MATH_SRC}`);
+    const answered = await submitAnswer(root, { sessionId: res.session.id, questionId: res.question.questionId, displayIndex: 0 }, d);
+    expect(JSON.stringify(answered)).not.toContain('"excerpt"');
+  });
+});

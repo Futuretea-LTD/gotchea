@@ -68,7 +68,28 @@ export function codePreview(path: string, startLine: number, language: string, l
   return lines.length > CODE_PREVIEW_MAX_LINES ? { ...preview, truncated: true } : preview;
 }
 
-export const RevealRefSchema = z.strictObject({ path: z.string(), startLine: z.number().int(), endLine: z.number().int(), approximate: z.boolean() });
+/** Longest source excerpt attached to one reveal ref, and to a whole reveal. */
+export const REF_EXCERPT_MAX_LINES = 15;
+export const REVEAL_EXCERPT_MAX_LINES = 30;
+
+/**
+ * The cited lines, sanitized. Only ever part of a reveal, after the answer was recorded; absent
+ * when previews are off, the chunk is stale or the ref is approximate.
+ */
+export const RefExcerptSchema = z.strictObject({
+  language: z.string().min(1),
+  text: z.string(),
+  /** Present only when the ref is longer than the excerpt caps allow. */
+  truncated: z.literal(true).optional(),
+});
+
+export const RevealRefSchema = z.strictObject({
+  path: z.string(),
+  startLine: z.number().int(),
+  endLine: z.number().int(),
+  approximate: z.boolean(),
+  excerpt: RefExcerptSchema.optional(),
+});
 
 /** Crosses the boundary only AFTER the answer for that question was recorded. */
 export const RevealViewSchema = z.strictObject({
@@ -93,7 +114,7 @@ export interface PrivateQuestionView extends PublicQuestionView {
 }
 
 /** Keys that must never appear in a pre-submit value, at any depth. */
-export const FORBIDDEN_KEYS = ['correctIndex', 'correctDisplayIndex', 'correctOptionIndex', 'correctText', 'explanation', 'refs', 'answer', 'key'] as const;
+export const FORBIDDEN_KEYS = ['correctIndex', 'correctDisplayIndex', 'correctOptionIndex', 'correctText', 'explanation', 'refs', 'excerpt', 'answer', 'key'] as const;
 
 const FORBIDDEN = new Set<string>(FORBIDDEN_KEYS);
 

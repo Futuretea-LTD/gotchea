@@ -1,39 +1,367 @@
-[
-  {
-    "name": "get_chunk_for_file",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "path": {
-          "type": "string",
-          "minLength": 1,
-          "description": "File path relative to the repo root"
+{
+  "instructions": "gotchea quiz display rules:\n- Show everything between <<<SHOW TO USER VERBATIM and SHOW TO USER VERBATIM>>> verbatim: the code block with its path:line header, the question and all four options in full.\n- Show every block between <<<SHOW ANSWER FEEDBACK TO USER VERBATIM and SHOW ANSWER FEEDBACK TO USER VERBATIM>>> verbatim: the correct option, the explanation and the cited code.\n- Never replace option text with short labels. If you offer a selection UI, label its choices only A, B, C, D.\n- Ask the question to the user, do not guess the answer yourself.",
+  "tools": [
+    {
+      "name": "get_chunk_for_file",
+      "description": "Find the chunk covering a file position. With `line`: the innermost chunk containing it. Without: the file chunk followed by its leaf chunks. Served from an in-memory index.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "File path relative to the repo root"
+          },
+          "line": {
+            "description": "1-based line; the innermost chunk containing it is returned",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
         },
-        "line": {
-          "description": "1-based line; the innermost chunk containing it is returned",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 9007199254740991
-        }
+        "required": [
+          "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
-      "required": [
-        "path"
-      ],
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "initialized": {
+            "type": "boolean"
+          },
+          "scanned": {
+            "type": "boolean"
+          },
+          "chunks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "module",
+                    "file",
+                    "group",
+                    "symbol"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "parentId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "ranges": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "start": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "end": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "start",
+                      "end"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "loc": {
+                  "type": "number"
+                },
+                "complexity": {
+                  "type": "number"
+                },
+                "fanIn": {
+                  "type": "number"
+                },
+                "isLeaf": {
+                  "type": "boolean"
+                },
+                "questionCount": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "title",
+                "parentId",
+                "ranges",
+                "loc",
+                "complexity",
+                "fanIn",
+                "isLeaf",
+                "questionCount"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "initialized",
+          "scanned",
+          "chunks"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      }
     },
-    "outputSchema": {
-      "type": "object",
-      "properties": {
-        "initialized": {
-          "type": "boolean"
+    {
+      "name": "get_generation_tasks",
+      "description": "The next chunks that need quiz questions, highest priority first (no questions yet, most imported, largest gap). Each task has chunk-relative numbered code, import signatures, the stems of existing questions and the instructions. Write the questions yourself, then call save_questions. Best done in a subagent or a separate session, so the answers you write stay out of the context you are quizzed in.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "description": "Most tasks to return (1-10, default 3)",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "lang": {
+            "description": "Question language code such as en, tr or pt-BR; defaults to config questions.lang",
+            "type": "string"
+          }
         },
-        "scanned": {
-          "type": "boolean"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "initialized": {
+            "type": "boolean"
+          },
+          "scanned": {
+            "type": "boolean"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chunkId": {
+                  "type": "string"
+                },
+                "chunkHash": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "sourceLang": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "lineCount": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "code": {
+                  "type": "string"
+                },
+                "context": {
+                  "type": "object",
+                  "properties": {
+                    "imports": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "from": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "signature": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "from",
+                          "name",
+                          "signature"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "enclosing": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "imports",
+                    "enclosing"
+                  ],
+                  "additionalProperties": false
+                },
+                "existingStems": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "typePlan": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "behavior",
+                      "edge_case",
+                      "purpose",
+                      "impact",
+                      "bug_detection"
+                    ]
+                  }
+                },
+                "questionLang": {
+                  "type": "string"
+                },
+                "instructions": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "chunkId",
+                "chunkHash",
+                "path",
+                "title",
+                "sourceLang",
+                "lineCount",
+                "code",
+                "context",
+                "existingStems",
+                "count",
+                "typePlan",
+                "questionLang",
+                "instructions"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "remaining": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "changedSinceScan": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
-        "chunks": {
-          "type": "array",
-          "items": {
+        "required": [
+          "initialized",
+          "scanned",
+          "tasks",
+          "remaining",
+          "changedSinceScan"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_map",
+      "description": "The comprehension heat map: repo > module > file > symbol, with colour (⬜ unseen, 🟥, 🟨, 🟩), LOC and question counts. Optionally filtered by path and limited in depth.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "description": "Only this directory, file or chunk id, relative to the repo root",
+            "type": "string"
+          },
+          "depth": {
+            "description": "Levels below the (filtered) root to include; unlimited when omitted",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "initialized": {
+            "type": "boolean"
+          },
+          "scanned": {
+            "type": "boolean"
+          },
+          "filter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "depth": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "root": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/__schema0"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "initialized",
+          "scanned",
+          "filter",
+          "depth",
+          "root"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "definitions": {
+          "__schema0": {
             "type": "object",
             "properties": {
               "id": {
@@ -51,38 +379,38 @@
               "title": {
                 "type": "string"
               },
-              "parentId": {
+              "path": {
                 "type": [
                   "string",
                   "null"
                 ]
               },
-              "ranges": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "path": {
-                      "type": "string"
+              "lines": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "start": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "end": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
                     },
-                    "start": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "end": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    }
+                    "required": [
+                      "start",
+                      "end"
+                    ],
+                    "additionalProperties": false
                   },
-                  "required": [
-                    "path",
-                    "start",
-                    "end"
-                  ],
-                  "additionalProperties": false
-                }
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "loc": {
                 "type": "number"
@@ -98,119 +426,29 @@
               },
               "questionCount": {
                 "type": "number"
-              }
-            },
-            "required": [
-              "id",
-              "kind",
-              "title",
-              "parentId",
-              "ranges",
-              "loc",
-              "complexity",
-              "fanIn",
-              "isLeaf",
-              "questionCount"
-            ],
-            "additionalProperties": false
-          }
-        }
-      },
-      "required": [
-        "initialized",
-        "scanned",
-        "chunks"
-      ],
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "get_generation_tasks",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "limit": {
-          "description": "Most tasks to return (1-10, default 3)",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 10
-        },
-        "lang": {
-          "description": "Question language code such as en, tr or pt-BR; defaults to config questions.lang",
-          "type": "string"
-        }
-      },
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
-    },
-    "outputSchema": {
-      "type": "object",
-      "properties": {
-        "initialized": {
-          "type": "boolean"
-        },
-        "scanned": {
-          "type": "boolean"
-        },
-        "tasks": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "chunkId": {
-                "type": "string"
               },
-              "chunkHash": {
-                "type": "string"
+              "okQuestions": {
+                "type": "number"
               },
-              "path": {
-                "type": "string"
-              },
-              "title": {
-                "type": "string"
-              },
-              "sourceLang": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "lineCount": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "code": {
-                "type": "string"
-              },
-              "context": {
+              "state": {
                 "type": "object",
                 "properties": {
-                  "imports": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "from": {
-                          "type": "string"
-                        },
-                        "name": {
-                          "type": "string"
-                        },
-                        "signature": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "from",
-                        "name",
-                        "signature"
-                      ],
-                      "additionalProperties": false
-                    }
+                  "color": {
+                    "type": "string",
+                    "enum": [
+                      "grey",
+                      "red",
+                      "yellow",
+                      "green"
+                    ]
                   },
-                  "enclosing": {
+                  "R": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "dueAt": {
                     "type": [
                       "string",
                       "null"
@@ -218,1754 +456,808 @@
                   }
                 },
                 "required": [
-                  "imports",
-                  "enclosing"
+                  "color",
+                  "R",
+                  "dueAt"
                 ],
                 "additionalProperties": false
               },
-              "existingStems": {
+              "children": {
                 "type": "array",
                 "items": {
-                  "type": "string"
+                  "$ref": "#/definitions/__schema0"
                 }
-              },
-              "count": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "typePlan": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "enum": [
-                    "behavior",
-                    "edge_case",
-                    "purpose",
-                    "impact",
-                    "bug_detection"
-                  ]
-                }
-              },
-              "questionLang": {
-                "type": "string"
-              },
-              "instructions": {
-                "type": "string"
               }
             },
             "required": [
-              "chunkId",
-              "chunkHash",
-              "path",
+              "id",
+              "kind",
               "title",
-              "sourceLang",
-              "lineCount",
-              "code",
-              "context",
-              "existingStems",
-              "count",
-              "typePlan",
-              "questionLang",
-              "instructions"
+              "path",
+              "lines",
+              "loc",
+              "complexity",
+              "fanIn",
+              "isLeaf",
+              "questionCount",
+              "okQuestions",
+              "state",
+              "children"
             ],
             "additionalProperties": false
           }
-        },
-        "remaining": {
-          "type": "integer",
-          "minimum": -9007199254740991,
-          "maximum": 9007199254740991
-        },
-        "changedSinceScan": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "required": [
-        "initialized",
-        "scanned",
-        "tasks",
-        "remaining",
-        "changedSinceScan"
-      ],
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "get_map",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "path": {
-          "description": "Only this directory, file or chunk id, relative to the repo root",
-          "type": "string"
-        },
-        "depth": {
-          "description": "Levels below the (filtered) root to include; unlimited when omitted",
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
-        }
-      },
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
-    },
-    "outputSchema": {
-      "type": "object",
-      "properties": {
-        "initialized": {
-          "type": "boolean"
-        },
-        "scanned": {
-          "type": "boolean"
-        },
-        "filter": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "depth": {
-          "type": [
-            "number",
-            "null"
-          ]
-        },
-        "root": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/__schema0"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "initialized",
-        "scanned",
-        "filter",
-        "depth",
-        "root"
-      ],
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false,
-      "definitions": {
-        "__schema0": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "kind": {
-              "type": "string",
-              "enum": [
-                "module",
-                "file",
-                "group",
-                "symbol"
-              ]
-            },
-            "title": {
-              "type": "string"
-            },
-            "path": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "lines": {
-              "anyOf": [
-                {
-                  "type": "object",
-                  "properties": {
-                    "start": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "end": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    }
-                  },
-                  "required": [
-                    "start",
-                    "end"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "loc": {
-              "type": "number"
-            },
-            "complexity": {
-              "type": "number"
-            },
-            "fanIn": {
-              "type": "number"
-            },
-            "isLeaf": {
-              "type": "boolean"
-            },
-            "questionCount": {
-              "type": "number"
-            },
-            "okQuestions": {
-              "type": "number"
-            },
-            "state": {
-              "type": "object",
-              "properties": {
-                "color": {
-                  "type": "string",
-                  "enum": [
-                    "grey",
-                    "red",
-                    "yellow",
-                    "green"
-                  ]
-                },
-                "R": {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                },
-                "dueAt": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                }
-              },
-              "required": [
-                "color",
-                "R",
-                "dueAt"
-              ],
-              "additionalProperties": false
-            },
-            "children": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/__schema0"
-              }
-            }
-          },
-          "required": [
-            "id",
-            "kind",
-            "title",
-            "path",
-            "lines",
-            "loc",
-            "complexity",
-            "fanIn",
-            "isLeaf",
-            "questionCount",
-            "okQuestions",
-            "state",
-            "children"
-          ],
-          "additionalProperties": false
         }
       }
-    }
-  },
-  {
-    "name": "get_status",
-    "inputSchema": {
-      "type": "object",
-      "properties": {},
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
     },
-    "outputSchema": {
-      "type": "object",
-      "properties": {
-        "initialized": {
-          "type": "boolean"
-        },
-        "scanned": {
-          "type": "boolean"
-        },
-        "chunks": {
-          "type": "number"
-        },
-        "leaves": {
-          "type": "number"
-        },
-        "questions": {
-          "type": "number"
-        },
-        "due": {
-          "type": "number"
-        },
-        "colors": {
-          "type": "object",
-          "properties": {
-            "grey": {
-              "type": "number"
-            },
-            "red": {
-              "type": "number"
-            },
-            "yellow": {
-              "type": "number"
-            },
-            "green": {
-              "type": "number"
-            }
-          },
-          "required": [
-            "grey",
-            "red",
-            "yellow",
-            "green"
-          ],
-          "additionalProperties": false
-        }
+    {
+      "name": "get_status",
+      "description": "Tracked chunk count, question count, reviews due now and the colour distribution of the leaf chunks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
-      "required": [
-        "initialized",
-        "scanned",
-        "chunks",
-        "leaves",
-        "questions",
-        "due",
-        "colors"
-      ],
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "save_questions",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "chunkId": {
-          "type": "string",
-          "minLength": 1,
-          "description": "chunkId of the generation task"
-        },
-        "chunkHash": {
-          "type": "string",
-          "minLength": 1,
-          "description": "chunkHash of the generation task; a mismatch means the code changed and the whole call is refused"
-        },
-        "lang": {
-          "description": "Question language code such as en, tr or pt-BR; defaults to config questions.lang",
-          "type": "string"
-        },
-        "questions": {
-          "minItems": 1,
-          "maxItems": 20,
-          "type": "array",
-          "items": {
-            "type": "object",
-            "propertyNames": {
-              "type": "string"
-            },
-            "additionalProperties": {}
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "initialized": {
+            "type": "boolean"
           },
-          "description": "Raw questions: { type, stem, options: [4 strings], correctIndex: 0-3, explanation (cites L<n>), refs: [{start, end}], difficulty: 1-3 }. Line numbers are chunk-relative, as in the task code."
-        }
-      },
-      "required": [
-        "chunkId",
-        "chunkHash",
-        "questions"
-      ],
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
-    },
-    "outputSchema": {
-      "type": "object",
-      "properties": {
-        "initialized": {
-          "type": "boolean"
-        },
-        "scanned": {
-          "type": "boolean"
-        },
-        "status": {
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": [
-                "saved",
-                "rejected"
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "reason": {
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": [
-                "not_scanned",
-                "unknown_chunk",
-                "not_leaf",
-                "chunk_hash_mismatch",
-                "chunk_changed_since_scan",
-                "lang_invalid",
-                "batch_too_large"
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "chunkId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "savedCount": {
-          "type": "integer",
-          "minimum": -9007199254740991,
-          "maximum": 9007199254740991
-        },
-        "accepted": {
-          "type": "array",
-          "items": {
+          "scanned": {
+            "type": "boolean"
+          },
+          "chunks": {
+            "type": "number"
+          },
+          "leaves": {
+            "type": "number"
+          },
+          "questions": {
+            "type": "number"
+          },
+          "due": {
+            "type": "number"
+          },
+          "colors": {
             "type": "object",
             "properties": {
-              "index": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
+              "grey": {
+                "type": "number"
               },
-              "id": {
-                "type": "string"
+              "red": {
+                "type": "number"
+              },
+              "yellow": {
+                "type": "number"
+              },
+              "green": {
+                "type": "number"
               }
             },
             "required": [
-              "index",
-              "id"
+              "grey",
+              "red",
+              "yellow",
+              "green"
             ],
             "additionalProperties": false
           }
         },
-        "rejected": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "index": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
+        "required": [
+          "initialized",
+          "scanned",
+          "chunks",
+          "leaves",
+          "questions",
+          "due",
+          "colors"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "save_questions",
+      "description": "Save questions you wrote for one task from get_generation_tasks. Pass the task chunkId and chunkHash unchanged. If the chunk is unknown or its code changed (hash mismatch), the whole call is refused and nothing is saved. Otherwise each question is validated and saved, and rejected ones come back as { index, reason, detail }. Fix those and resubmit only them.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chunkId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "chunkId of the generation task"
+          },
+          "chunkHash": {
+            "type": "string",
+            "minLength": 1,
+            "description": "chunkHash of the generation task; a mismatch means the code changed and the whole call is refused"
+          },
+          "lang": {
+            "description": "Question language code such as en, tr or pt-BR; defaults to config questions.lang",
+            "type": "string"
+          },
+          "questions": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
               },
-              "reason": {
+              "additionalProperties": {}
+            },
+            "description": "Raw questions: { type, stem, options: [4 strings], correctIndex: 0-3, explanation (cites L<n>), refs: [{start, end}], difficulty: 1-3 }. Line numbers are chunk-relative, as in the task code."
+          }
+        },
+        "required": [
+          "chunkId",
+          "chunkHash",
+          "questions"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "initialized": {
+            "type": "boolean"
+          },
+          "scanned": {
+            "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
                 "type": "string",
                 "enum": [
-                  "schema_invalid",
-                  "type_not_allowed",
-                  "options_not_distinct",
-                  "meta_option",
-                  "answer_leak_marker",
-                  "answer_leak_stem",
-                  "answer_leak_options",
-                  "length_skew",
-                  "refs_out_of_range",
-                  "explanation_citation",
-                  "trivia",
-                  "duplicate_stored",
-                  "duplicate_batch"
+                  "saved",
+                  "rejected"
                 ]
               },
-              "detail": {
-                "type": "string"
+              {
+                "type": "null"
               }
-            },
-            "required": [
-              "index",
-              "reason",
-              "detail"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "usableQuestions": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "minimum": -9007199254740991,
-              "maximum": 9007199254740991
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "target": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "minimum": -9007199254740991,
-              "maximum": 9007199254740991
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "initialized",
-        "scanned",
-        "status",
-        "reason",
-        "chunkId",
-        "savedCount",
-        "accepted",
-        "rejected",
-        "usableQuestions",
-        "target"
-      ],
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "scan",
-    "inputSchema": {
-      "type": "object",
-      "properties": {},
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
-    },
-    "outputSchema": {
-      "type": "object",
-      "properties": {
-        "initialized": {
-          "type": "boolean"
-        },
-        "scanned": {
-          "type": "boolean"
-        },
-        "summary": {
-          "anyOf": [
-            {
-              "type": "object",
-              "properties": {
-                "added": {
-                  "type": "number"
-                },
-                "changed": {
-                  "type": "number"
-                },
-                "moved": {
-                  "type": "number"
-                },
-                "removed": {
-                  "type": "number"
-                },
-                "total": {
-                  "type": "number"
-                }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "not_scanned",
+                  "unknown_chunk",
+                  "not_leaf",
+                  "chunk_hash_mismatch",
+                  "chunk_changed_since_scan",
+                  "lang_invalid",
+                  "batch_too_large"
+                ]
               },
-              "required": [
-                "added",
-                "changed",
-                "moved",
-                "removed",
-                "total"
-              ],
-              "additionalProperties": false
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "initialized",
-        "scanned",
-        "summary"
-      ],
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "start_quiz",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "path": {
-          "description": "Directory, file or chunk-id prefix, relative to the repo root",
-          "type": "string"
-        },
-        "chunkId": {
-          "description": "Exact leaf chunk id (aliases accepted)",
-          "type": "string"
-        },
-        "count": {
-          "description": "Questions in this quiz; clamped to [quiz.minQuestions, the chunk size]",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 10
-        },
-        "lang": {
-          "description": "Question language code such as en, tr or pt-BR; defaults to config questions.lang",
-          "type": "string"
-        },
-        "includeCode": {
-          "description": "Attach the chunk's source to each question (default: the config value quiz.showCode, true unless set; a resumed session keeps its own). The preview is the working-tree source, so the quiz is open book.",
-          "type": "boolean"
-        }
-      },
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
-    },
-    "outputSchema": {
-      "type": "object",
-      "properties": {
-        "initialized": {
-          "type": "boolean"
-        },
-        "scanned": {
-          "type": "boolean"
-        },
-        "status": {
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": [
-                "started",
-                "resumed",
-                "completed",
-                "cancelled",
-                "refused"
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "reason": {
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": [
-                "both_targets",
-                "unknown_chunk",
-                "not_leaf",
-                "no_match",
-                "no_quizzable_chunk",
-                "not_enough_questions",
-                "lang_invalid"
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "session": {
-          "anyOf": [
-            {
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chunkId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "savedCount": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "accepted": {
+            "type": "array",
+            "items": {
               "type": "object",
               "properties": {
+                "index": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
                 "id": {
                   "type": "string"
-                },
-                "chunkId": {
-                  "type": "string"
-                },
-                "chunkTitle": {
-                  "type": "string"
-                },
-                "path": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "total": {
-                  "type": "integer",
-                  "minimum": -9007199254740991,
-                  "maximum": 9007199254740991
-                },
-                "answered": {
-                  "type": "integer",
-                  "minimum": -9007199254740991,
-                  "maximum": 9007199254740991
-                },
-                "needed": {
-                  "type": "integer",
-                  "minimum": -9007199254740991,
-                  "maximum": 9007199254740991
-                },
-                "expiresAt": {
-                  "type": "string"
                 }
               },
               "required": [
-                "id",
-                "chunkId",
-                "chunkTitle",
-                "path",
-                "total",
-                "answered",
-                "needed",
-                "expiresAt"
+                "index",
+                "id"
               ],
               "additionalProperties": false
-            },
-            {
-              "type": "null"
             }
-          ]
-        },
-        "question": {
-          "anyOf": [
-            {
+          },
+          "rejected": {
+            "type": "array",
+            "items": {
               "type": "object",
               "properties": {
-                "questionId": {
+                "index": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "reason": {
                   "type": "string",
-                  "pattern": "^q_[0-9a-f]{12}$"
-                },
-                "position": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9007199254740991
-                },
-                "total": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9007199254740991
-                },
-                "stem": {
-                  "type": "string"
-                },
-                "options": {
-                  "type": "array",
-                  "items": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "index": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 3
-                        },
-                        "label": {
-                          "type": "string",
-                          "enum": [
-                            "A",
-                            "B",
-                            "C",
-                            "D"
-                          ]
-                        },
-                        "text": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "index",
-                        "label",
-                        "text"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "index": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 3
-                        },
-                        "label": {
-                          "type": "string",
-                          "enum": [
-                            "A",
-                            "B",
-                            "C",
-                            "D"
-                          ]
-                        },
-                        "text": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "index",
-                        "label",
-                        "text"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "index": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 3
-                        },
-                        "label": {
-                          "type": "string",
-                          "enum": [
-                            "A",
-                            "B",
-                            "C",
-                            "D"
-                          ]
-                        },
-                        "text": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "index",
-                        "label",
-                        "text"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "index": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 3
-                        },
-                        "label": {
-                          "type": "string",
-                          "enum": [
-                            "A",
-                            "B",
-                            "C",
-                            "D"
-                          ]
-                        },
-                        "text": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "index",
-                        "label",
-                        "text"
-                      ],
-                      "additionalProperties": false
-                    }
-                  ],
-                  "additionalItems": false,
-                  "minItems": 4,
-                  "maxItems": 4
-                },
-                "code": {
-                  "type": "object",
-                  "properties": {
-                    "path": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "startLine": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    },
-                    "endLine": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    },
-                    "language": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "text": {
-                      "type": "string"
-                    },
-                    "truncated": {
-                      "type": "boolean",
-                      "const": true
-                    }
-                  },
-                  "required": [
-                    "path",
-                    "startLine",
-                    "endLine",
-                    "language",
-                    "text"
-                  ],
-                  "additionalProperties": false
-                }
-              },
-              "required": [
-                "questionId",
-                "position",
-                "total",
-                "stem",
-                "options"
-              ],
-              "additionalProperties": false
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "result": {
-          "anyOf": [
-            {
-              "type": "object",
-              "properties": {
-                "passed": {
-                  "type": "boolean"
-                },
-                "correct": {
-                  "type": "integer",
-                  "minimum": -9007199254740991,
-                  "maximum": 9007199254740991
-                },
-                "total": {
-                  "type": "integer",
-                  "minimum": -9007199254740991,
-                  "maximum": 9007199254740991
-                },
-                "needed": {
-                  "type": "integer",
-                  "minimum": -9007199254740991,
-                  "maximum": 9007199254740991
-                },
-                "chunk": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "title": {
-                      "type": "string"
-                    },
-                    "path": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "id",
-                    "title",
-                    "path"
-                  ],
-                  "additionalProperties": false
-                },
-                "before": {
-                  "type": "object",
-                  "properties": {
-                    "color": {
-                      "type": "string",
-                      "enum": [
-                        "grey",
-                        "red",
-                        "yellow",
-                        "green"
-                      ]
-                    },
-                    "R": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "color",
-                    "R"
-                  ],
-                  "additionalProperties": false
-                },
-                "after": {
-                  "type": "object",
-                  "properties": {
-                    "color": {
-                      "type": "string",
-                      "enum": [
-                        "grey",
-                        "red",
-                        "yellow",
-                        "green"
-                      ]
-                    },
-                    "R": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
-                    "dueAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "color",
-                    "R",
-                    "dueAt"
-                  ],
-                  "additionalProperties": false
-                },
-                "stabilityDays": {
-                  "type": [
-                    "number",
-                    "null"
+                  "enum": [
+                    "schema_invalid",
+                    "type_not_allowed",
+                    "options_not_distinct",
+                    "meta_option",
+                    "answer_leak_marker",
+                    "answer_leak_stem",
+                    "answer_leak_options",
+                    "length_skew",
+                    "refs_out_of_range",
+                    "explanation_citation",
+                    "trivia",
+                    "duplicate_stored",
+                    "duplicate_batch"
                   ]
                 },
-                "heatmap": {
-                  "type": "object",
-                  "properties": {
-                    "focus": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "color": {
-                          "type": "string",
-                          "enum": [
-                            "grey",
-                            "red",
-                            "yellow",
-                            "green"
-                          ]
-                        },
-                        "R": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "path": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "title",
-                        "color",
-                        "R",
-                        "path"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "fileLeaves": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          },
-                          "color": {
-                            "type": "string",
-                            "enum": [
-                              "grey",
-                              "red",
-                              "yellow",
-                              "green"
-                            ]
-                          },
-                          "R": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "isFocus": {
-                            "type": "boolean"
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "title",
-                          "color",
-                          "R",
-                          "isFocus"
-                        ],
-                        "additionalProperties": false
-                      }
-                    },
-                    "omitted": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "ancestors": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          },
-                          "color": {
-                            "type": "string",
-                            "enum": [
-                              "grey",
-                              "red",
-                              "yellow",
-                              "green"
-                            ]
-                          },
-                          "R": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "module",
-                              "file",
-                              "group",
-                              "symbol"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "title",
-                          "color",
-                          "R",
-                          "kind"
-                        ],
-                        "additionalProperties": false
-                      }
-                    }
-                  },
-                  "required": [
-                    "focus",
-                    "fileLeaves",
-                    "omitted",
-                    "ancestors"
-                  ],
-                  "additionalProperties": false
+                "detail": {
+                  "type": "string"
                 }
               },
               "required": [
-                "passed",
-                "correct",
-                "total",
-                "needed",
-                "chunk",
-                "before",
-                "after",
-                "stabilityDays",
-                "heatmap"
+                "index",
+                "reason",
+                "detail"
               ],
               "additionalProperties": false
-            },
-            {
-              "type": "null"
             }
-          ]
-        }
-      },
-      "required": [
-        "initialized",
-        "scanned",
-        "status",
-        "reason",
-        "session",
-        "question",
-        "result"
-      ],
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "submit_answer",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "sessionId": {
-          "type": "string",
-          "pattern": "^qs_[0-9a-f]{16}$",
-          "description": "Session id from start_quiz"
+          },
+          "usableQuestions": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         },
-        "questionId": {
-          "type": "string",
-          "description": "questionId of the question being answered"
-        },
-        "displayIndex": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 3,
-          "description": "Position of the option the user picked, as displayed: A=0, B=1, C=2, D=3"
-        },
-        "includeCode": {
-          "description": "Attach the chunk's source to the next question (default: the session's value, set by start_quiz from includeCode or quiz.showCode, default true). The preview is the working-tree source, so the quiz is open book.",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "sessionId",
-        "questionId",
-        "displayIndex"
-      ],
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
+        "required": [
+          "initialized",
+          "scanned",
+          "status",
+          "reason",
+          "chunkId",
+          "savedCount",
+          "accepted",
+          "rejected",
+          "usableQuestions",
+          "target"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      }
     },
-    "outputSchema": {
-      "type": "object",
-      "properties": {
-        "initialized": {
-          "type": "boolean"
-        },
-        "scanned": {
-          "type": "boolean"
-        },
-        "status": {
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": [
-                "answered",
-                "completed",
-                "refused"
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "reason": {
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": [
-                "unknown_session",
-                "session_expired",
-                "session_completed",
-                "chunk_changed",
-                "unknown_question",
-                "out_of_order",
-                "already_answered",
-                "invalid_index",
-                "question_unavailable"
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "repeat": {
-          "type": "boolean"
-        },
-        "sessionId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "reveal": {
-          "anyOf": [
-            {
-              "type": "object",
-              "properties": {
-                "questionId": {
-                  "type": "string"
+    {
+      "name": "scan",
+      "description": "Chunk the repository and update the map: detects added, changed, moved and removed chunks. Runs synchronously and may take a while on large repos.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "initialized": {
+            "type": "boolean"
+          },
+          "scanned": {
+            "type": "boolean"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "added": {
+                    "type": "number"
+                  },
+                  "changed": {
+                    "type": "number"
+                  },
+                  "moved": {
+                    "type": "number"
+                  },
+                  "removed": {
+                    "type": "number"
+                  },
+                  "total": {
+                    "type": "number"
+                  }
                 },
-                "correct": {
-                  "type": "boolean"
+                "required": [
+                  "added",
+                  "changed",
+                  "moved",
+                  "removed",
+                  "total"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "initialized",
+          "scanned",
+          "summary"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "start_quiz",
+      "description": "Start a comprehension quiz on one chunk of this repository. Pass `path` (a directory, file or symbol: the chunk that most needs review under it is picked) or `chunkId`; with neither, the whole repo is considered. Optional `count` shortens the quiz (default: the chunk's size, 3–7). Returns the first multiple-choice question with the code it is about, between verbatim relay markers. Show the user everything between the markers verbatim, exactly as written: the code block with its header, the question and all four options in full. Do not shorten, paraphrase or drop any of it. Ask the question to the user, do not guess the answer yourself. If you also offer a multiple-choice selection UI, label its choices only \"A\", \"B\", \"C\", \"D\" (the full text is already in your message). After an answer, also show the answer-feedback block between its own markers verbatim: the correct option, the explanation and the cited code. Then call `submit_answer` with the option the user picked. The correct answer and explanation are revealed only after you submit.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "description": "Directory, file or chunk-id prefix, relative to the repo root",
+            "type": "string"
+          },
+          "chunkId": {
+            "description": "Exact leaf chunk id (aliases accepted)",
+            "type": "string"
+          },
+          "count": {
+            "description": "Questions in this quiz; clamped to [quiz.minQuestions, the chunk size]",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "lang": {
+            "description": "Question language code such as en, tr or pt-BR; defaults to config questions.lang",
+            "type": "string"
+          },
+          "includeCode": {
+            "description": "Attach the chunk's source to each question (default: the config value quiz.showCode, true unless set; a resumed session keeps its own). The preview is the working-tree source, so the quiz is open book.",
+            "type": "boolean"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "initialized": {
+            "type": "boolean"
+          },
+          "scanned": {
+            "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "started",
+                  "resumed",
+                  "completed",
+                  "cancelled",
+                  "refused"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "both_targets",
+                  "unknown_chunk",
+                  "not_leaf",
+                  "no_match",
+                  "no_quizzable_chunk",
+                  "not_enough_questions",
+                  "lang_invalid"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "session": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "chunkId": {
+                    "type": "string"
+                  },
+                  "chunkTitle": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "answered": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "needed": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  }
                 },
-                "selectedDisplayIndex": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 3
-                },
-                "correctDisplayIndex": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 3
-                },
-                "correctText": {
-                  "type": "string"
-                },
-                "explanation": {
-                  "type": "string"
-                },
-                "refs": {
-                  "type": "array",
-                  "items": {
+                "required": [
+                  "id",
+                  "chunkId",
+                  "chunkTitle",
+                  "path",
+                  "total",
+                  "answered",
+                  "needed",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "questionId": {
+                    "type": "string",
+                    "pattern": "^q_[0-9a-f]{12}$"
+                  },
+                  "position": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "stem": {
+                    "type": "string"
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 3
+                          },
+                          "label": {
+                            "type": "string",
+                            "enum": [
+                              "A",
+                              "B",
+                              "C",
+                              "D"
+                            ]
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "index",
+                          "label",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 3
+                          },
+                          "label": {
+                            "type": "string",
+                            "enum": [
+                              "A",
+                              "B",
+                              "C",
+                              "D"
+                            ]
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "index",
+                          "label",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 3
+                          },
+                          "label": {
+                            "type": "string",
+                            "enum": [
+                              "A",
+                              "B",
+                              "C",
+                              "D"
+                            ]
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "index",
+                          "label",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 3
+                          },
+                          "label": {
+                            "type": "string",
+                            "enum": [
+                              "A",
+                              "B",
+                              "C",
+                              "D"
+                            ]
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "index",
+                          "label",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ],
+                    "additionalItems": false,
+                    "minItems": 4,
+                    "maxItems": 4
+                  },
+                  "code": {
                     "type": "object",
                     "properties": {
                       "path": {
-                        "type": "string"
+                        "type": "string",
+                        "minLength": 1
                       },
                       "startLine": {
                         "type": "integer",
-                        "minimum": -9007199254740991,
+                        "minimum": 1,
                         "maximum": 9007199254740991
                       },
                       "endLine": {
                         "type": "integer",
-                        "minimum": -9007199254740991,
+                        "minimum": 1,
                         "maximum": 9007199254740991
                       },
-                      "approximate": {
-                        "type": "boolean"
+                      "language": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "truncated": {
+                        "type": "boolean",
+                        "const": true
                       }
                     },
                     "required": [
                       "path",
                       "startLine",
                       "endLine",
-                      "approximate"
+                      "language",
+                      "text"
                     ],
                     "additionalProperties": false
                   }
-                }
+                },
+                "required": [
+                  "questionId",
+                  "position",
+                  "total",
+                  "stem",
+                  "options"
+                ],
+                "additionalProperties": false
               },
-              "required": [
-                "questionId",
-                "correct",
-                "selectedDisplayIndex",
-                "correctDisplayIndex",
-                "correctText",
-                "explanation",
-                "refs"
-              ],
-              "additionalProperties": false
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "progress": {
-          "anyOf": [
-            {
-              "type": "object",
-              "properties": {
-                "answered": {
-                  "type": "integer",
-                  "minimum": -9007199254740991,
-                  "maximum": 9007199254740991
-                },
-                "total": {
-                  "type": "integer",
-                  "minimum": -9007199254740991,
-                  "maximum": 9007199254740991
-                },
-                "correct": {
-                  "type": "integer",
-                  "minimum": -9007199254740991,
-                  "maximum": 9007199254740991
-                }
-              },
-              "required": [
-                "answered",
-                "total",
-                "correct"
-              ],
-              "additionalProperties": false
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "next": {
-          "anyOf": [
-            {
-              "type": "object",
-              "properties": {
-                "questionId": {
-                  "type": "string",
-                  "pattern": "^q_[0-9a-f]{12}$"
-                },
-                "position": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9007199254740991
-                },
-                "total": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9007199254740991
-                },
-                "stem": {
-                  "type": "string"
-                },
-                "options": {
-                  "type": "array",
-                  "items": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "index": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 3
-                        },
-                        "label": {
-                          "type": "string",
-                          "enum": [
-                            "A",
-                            "B",
-                            "C",
-                            "D"
-                          ]
-                        },
-                        "text": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "index",
-                        "label",
-                        "text"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "index": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 3
-                        },
-                        "label": {
-                          "type": "string",
-                          "enum": [
-                            "A",
-                            "B",
-                            "C",
-                            "D"
-                          ]
-                        },
-                        "text": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "index",
-                        "label",
-                        "text"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "index": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 3
-                        },
-                        "label": {
-                          "type": "string",
-                          "enum": [
-                            "A",
-                            "B",
-                            "C",
-                            "D"
-                          ]
-                        },
-                        "text": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "index",
-                        "label",
-                        "text"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "index": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 3
-                        },
-                        "label": {
-                          "type": "string",
-                          "enum": [
-                            "A",
-                            "B",
-                            "C",
-                            "D"
-                          ]
-                        },
-                        "text": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "index",
-                        "label",
-                        "text"
-                      ],
-                      "additionalProperties": false
-                    }
-                  ],
-                  "additionalItems": false,
-                  "minItems": 4,
-                  "maxItems": 4
-                },
-                "code": {
-                  "type": "object",
-                  "properties": {
-                    "path": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "startLine": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    },
-                    "endLine": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    },
-                    "language": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "text": {
-                      "type": "string"
-                    },
-                    "truncated": {
-                      "type": "boolean",
-                      "const": true
-                    }
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "passed": {
+                    "type": "boolean"
                   },
-                  "required": [
-                    "path",
-                    "startLine",
-                    "endLine",
-                    "language",
-                    "text"
-                  ],
-                  "additionalProperties": false
-                }
-              },
-              "required": [
-                "questionId",
-                "position",
-                "total",
-                "stem",
-                "options"
-              ],
-              "additionalProperties": false
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "result": {
-          "anyOf": [
-            {
-              "type": "object",
-              "properties": {
-                "passed": {
-                  "type": "boolean"
-                },
-                "correct": {
-                  "type": "integer",
-                  "minimum": -9007199254740991,
-                  "maximum": 9007199254740991
-                },
-                "total": {
-                  "type": "integer",
-                  "minimum": -9007199254740991,
-                  "maximum": 9007199254740991
-                },
-                "needed": {
-                  "type": "integer",
-                  "minimum": -9007199254740991,
-                  "maximum": 9007199254740991
-                },
-                "chunk": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "title": {
-                      "type": "string"
-                    },
-                    "path": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    }
+                  "correct": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
-                  "required": [
-                    "id",
-                    "title",
-                    "path"
-                  ],
-                  "additionalProperties": false
-                },
-                "before": {
-                  "type": "object",
-                  "properties": {
-                    "color": {
-                      "type": "string",
-                      "enum": [
-                        "grey",
-                        "red",
-                        "yellow",
-                        "green"
-                      ]
-                    },
-                    "R": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    }
+                  "total": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
-                  "required": [
-                    "color",
-                    "R"
-                  ],
-                  "additionalProperties": false
-                },
-                "after": {
-                  "type": "object",
-                  "properties": {
-                    "color": {
-                      "type": "string",
-                      "enum": [
-                        "grey",
-                        "red",
-                        "yellow",
-                        "green"
-                      ]
-                    },
-                    "R": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
-                    "dueAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    }
+                  "needed": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
                   },
-                  "required": [
-                    "color",
-                    "R",
-                    "dueAt"
-                  ],
-                  "additionalProperties": false
-                },
-                "stabilityDays": {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                },
-                "heatmap": {
-                  "type": "object",
-                  "properties": {
-                    "focus": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "color": {
-                          "type": "string",
-                          "enum": [
-                            "grey",
-                            "red",
-                            "yellow",
-                            "green"
-                          ]
-                        },
-                        "R": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "path": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        }
+                  "chunk": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
                       },
-                      "required": [
-                        "id",
-                        "title",
-                        "color",
-                        "R",
-                        "path"
-                      ],
-                      "additionalProperties": false
+                      "title": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
                     },
-                    "fileLeaves": {
-                      "type": "array",
-                      "items": {
+                    "required": [
+                      "id",
+                      "title",
+                      "path"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "before": {
+                    "type": "object",
+                    "properties": {
+                      "color": {
+                        "type": "string",
+                        "enum": [
+                          "grey",
+                          "red",
+                          "yellow",
+                          "green"
+                        ]
+                      },
+                      "R": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "color",
+                      "R"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "after": {
+                    "type": "object",
+                    "properties": {
+                      "color": {
+                        "type": "string",
+                        "enum": [
+                          "grey",
+                          "red",
+                          "yellow",
+                          "green"
+                        ]
+                      },
+                      "R": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "dueAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "color",
+                      "R",
+                      "dueAt"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "stabilityDays": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "heatmap": {
+                    "type": "object",
+                    "properties": {
+                      "focus": {
                         "type": "object",
                         "properties": {
                           "id": {
@@ -1989,59 +1281,11 @@
                               "null"
                             ]
                           },
-                          "isFocus": {
-                            "type": "boolean"
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "title",
-                          "color",
-                          "R",
-                          "isFocus"
-                        ],
-                        "additionalProperties": false
-                      }
-                    },
-                    "omitted": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "ancestors": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          },
-                          "color": {
-                            "type": "string",
-                            "enum": [
-                              "grey",
-                              "red",
-                              "yellow",
-                              "green"
-                            ]
-                          },
-                          "R": {
+                          "path": {
                             "type": [
-                              "number",
+                              "string",
                               "null"
                             ]
-                          },
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "module",
-                              "file",
-                              "group",
-                              "symbol"
-                            ]
                           }
                         },
                         "required": [
@@ -2049,54 +1293,842 @@
                           "title",
                           "color",
                           "R",
-                          "kind"
+                          "path"
                         ],
                         "additionalProperties": false
+                      },
+                      "fileLeaves": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "color": {
+                              "type": "string",
+                              "enum": [
+                                "grey",
+                                "red",
+                                "yellow",
+                                "green"
+                              ]
+                            },
+                            "R": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "isFocus": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "title",
+                            "color",
+                            "R",
+                            "isFocus"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "omitted": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "ancestors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "color": {
+                              "type": "string",
+                              "enum": [
+                                "grey",
+                                "red",
+                                "yellow",
+                                "green"
+                              ]
+                            },
+                            "R": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "module",
+                                "file",
+                                "group",
+                                "symbol"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "title",
+                            "color",
+                            "R",
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        }
                       }
-                    }
-                  },
-                  "required": [
-                    "focus",
-                    "fileLeaves",
-                    "omitted",
-                    "ancestors"
-                  ],
-                  "additionalProperties": false
-                }
+                    },
+                    "required": [
+                      "focus",
+                      "fileLeaves",
+                      "omitted",
+                      "ancestors"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "passed",
+                  "correct",
+                  "total",
+                  "needed",
+                  "chunk",
+                  "before",
+                  "after",
+                  "stabilityDays",
+                  "heatmap"
+                ],
+                "additionalProperties": false
               },
-              "required": [
-                "passed",
-                "correct",
-                "total",
-                "needed",
-                "chunk",
-                "before",
-                "after",
-                "stabilityDays",
-                "heatmap"
-              ],
-              "additionalProperties": false
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "initialized",
+          "scanned",
+          "status",
+          "reason",
+          "session",
+          "question",
+          "result"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "submit_answer",
+      "description": "Submit the user's answer to the current quiz question. `displayIndex` is the position of the option the user picked, as shown by `start_quiz` or the previous `submit_answer` (A=0, B=1, C=2, D=3). Answers are final and must be given in order. Returns an answer-feedback block (whether it was correct, the correct option, the explanation and the cited code), then the next question with its code, each between verbatim relay markers. Show the answer-feedback block verbatim too. Show the user everything between the markers verbatim, exactly as written: the code block with its header, the question and all four options in full. Do not shorten, paraphrase or drop any of it. Ask the question to the user, do not guess the answer yourself. If you also offer a multiple-choice selection UI, label its choices only \"A\", \"B\", \"C\", \"D\" (the full text is already in your message). After an answer, also show the answer-feedback block between its own markers verbatim: the correct option, the explanation and the cited code. After the last question this returns the result: pass/fail, the chunk's new colour and an updated mini heatmap.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "pattern": "^qs_[0-9a-f]{16}$",
+            "description": "Session id from start_quiz"
+          },
+          "questionId": {
+            "type": "string",
+            "description": "questionId of the question being answered"
+          },
+          "displayIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3,
+            "description": "Position of the option the user picked, as displayed: A=0, B=1, C=2, D=3"
+          },
+          "includeCode": {
+            "description": "Attach the chunk's source to the next question (default: the session's value, set by start_quiz from includeCode or quiz.showCode, default true). The preview is the working-tree source, so the quiz is open book.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sessionId",
+          "questionId",
+          "displayIndex"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
-      "required": [
-        "initialized",
-        "scanned",
-        "status",
-        "reason",
-        "repeat",
-        "sessionId",
-        "reveal",
-        "progress",
-        "next",
-        "result"
-      ],
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "initialized": {
+            "type": "boolean"
+          },
+          "scanned": {
+            "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "answered",
+                  "completed",
+                  "refused"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "unknown_session",
+                  "session_expired",
+                  "session_completed",
+                  "chunk_changed",
+                  "unknown_question",
+                  "out_of_order",
+                  "already_answered",
+                  "invalid_index",
+                  "question_unavailable"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "repeat": {
+            "type": "boolean"
+          },
+          "sessionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reveal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "questionId": {
+                    "type": "string"
+                  },
+                  "correct": {
+                    "type": "boolean"
+                  },
+                  "selectedDisplayIndex": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3
+                  },
+                  "correctDisplayIndex": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3
+                  },
+                  "correctText": {
+                    "type": "string"
+                  },
+                  "explanation": {
+                    "type": "string"
+                  },
+                  "refs": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "startLine": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "endLine": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "approximate": {
+                          "type": "boolean"
+                        },
+                        "excerpt": {
+                          "type": "object",
+                          "properties": {
+                            "language": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "truncated": {
+                              "type": "boolean",
+                              "const": true
+                            }
+                          },
+                          "required": [
+                            "language",
+                            "text"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "startLine",
+                        "endLine",
+                        "approximate"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "questionId",
+                  "correct",
+                  "selectedDisplayIndex",
+                  "correctDisplayIndex",
+                  "correctText",
+                  "explanation",
+                  "refs"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "answered": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "correct": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "answered",
+                  "total",
+                  "correct"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "questionId": {
+                    "type": "string",
+                    "pattern": "^q_[0-9a-f]{12}$"
+                  },
+                  "position": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "stem": {
+                    "type": "string"
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 3
+                          },
+                          "label": {
+                            "type": "string",
+                            "enum": [
+                              "A",
+                              "B",
+                              "C",
+                              "D"
+                            ]
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "index",
+                          "label",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 3
+                          },
+                          "label": {
+                            "type": "string",
+                            "enum": [
+                              "A",
+                              "B",
+                              "C",
+                              "D"
+                            ]
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "index",
+                          "label",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 3
+                          },
+                          "label": {
+                            "type": "string",
+                            "enum": [
+                              "A",
+                              "B",
+                              "C",
+                              "D"
+                            ]
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "index",
+                          "label",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 3
+                          },
+                          "label": {
+                            "type": "string",
+                            "enum": [
+                              "A",
+                              "B",
+                              "C",
+                              "D"
+                            ]
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "index",
+                          "label",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ],
+                    "additionalItems": false,
+                    "minItems": 4,
+                    "maxItems": 4
+                  },
+                  "code": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "startLine": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "endLine": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "language": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "truncated": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "startLine",
+                      "endLine",
+                      "language",
+                      "text"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "questionId",
+                  "position",
+                  "total",
+                  "stem",
+                  "options"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "passed": {
+                    "type": "boolean"
+                  },
+                  "correct": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "needed": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "chunk": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title",
+                      "path"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "before": {
+                    "type": "object",
+                    "properties": {
+                      "color": {
+                        "type": "string",
+                        "enum": [
+                          "grey",
+                          "red",
+                          "yellow",
+                          "green"
+                        ]
+                      },
+                      "R": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "color",
+                      "R"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "after": {
+                    "type": "object",
+                    "properties": {
+                      "color": {
+                        "type": "string",
+                        "enum": [
+                          "grey",
+                          "red",
+                          "yellow",
+                          "green"
+                        ]
+                      },
+                      "R": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "dueAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "color",
+                      "R",
+                      "dueAt"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "stabilityDays": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "heatmap": {
+                    "type": "object",
+                    "properties": {
+                      "focus": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "color": {
+                            "type": "string",
+                            "enum": [
+                              "grey",
+                              "red",
+                              "yellow",
+                              "green"
+                            ]
+                          },
+                          "R": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "path": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "title",
+                          "color",
+                          "R",
+                          "path"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "fileLeaves": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "color": {
+                              "type": "string",
+                              "enum": [
+                                "grey",
+                                "red",
+                                "yellow",
+                                "green"
+                              ]
+                            },
+                            "R": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "isFocus": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "title",
+                            "color",
+                            "R",
+                            "isFocus"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "omitted": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "ancestors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "color": {
+                              "type": "string",
+                              "enum": [
+                                "grey",
+                                "red",
+                                "yellow",
+                                "green"
+                              ]
+                            },
+                            "R": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "module",
+                                "file",
+                                "group",
+                                "symbol"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "title",
+                            "color",
+                            "R",
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "focus",
+                      "fileLeaves",
+                      "omitted",
+                      "ancestors"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "passed",
+                  "correct",
+                  "total",
+                  "needed",
+                  "chunk",
+                  "before",
+                  "after",
+                  "stabilityDays",
+                  "heatmap"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "initialized",
+          "scanned",
+          "status",
+          "reason",
+          "repeat",
+          "sessionId",
+          "reveal",
+          "progress",
+          "next",
+          "result"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      }
     }
-  }
-]
+  ]
+}

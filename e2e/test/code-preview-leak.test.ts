@@ -300,6 +300,100 @@ describe('C: quiz code previews never carry answers and disappear for stale chun
     assertNoAnswerText(hidden.text, 'cli quiz --no-code');
   });
 
+  const textOf = (result: unknown) => ((result as { content: unknown }).content as { type: string; text?: string }[]).map((item) => item.text ?? '').join('\n');
+  const FEEDBACK_START = '<<<SHOW ANSWER FEEDBACK TO USER VERBATIM';
+  const FEEDBACK_END = 'SHOW ANSWER FEEDBACK TO USER VERBATIM>>>';
+  const between = (shown: string, start: string, end: string) => shown.split(`${start}\n`)[1]!.split(`\n${end}`)[0]!;
+
+  /** Answers every remaining question (always A), so the next test starts a fresh session instead of resuming this one. */
+  async function drain(sessionId: string, next: Question | null | undefined) {
+    while (next) {
+      const answer = (await harness.callTool('submit_answer', { sessionId, questionId: next.questionId, displayIndex: 0 })).structuredContent as SubmitAnswerOut;
+      next = answer.next;
+    }
+  }
+
+  it('MCP reveal carries the cited source as an excerpt and an answer-feedback block, and the next question block stays clean', async () => {
+    const code = await expectedCode(gradingPath, gradingLines);
+    const start = (await call('start_quiz', { chunkId: gradingChunk, lang: 'en' })).structuredContent as StartQuizOut;
+    const question = start.question!;
+    const option = question.options.find((entry) => entry.text === allCorrect.get(question.stem))!;
+    const response = await harness.callTool('submit_answer', { sessionId: start.session!.id, questionId: question.questionId, displayIndex: option.index });
+    const answer = response.structuredContent as SubmitAnswerOut;
+    const lines = code.text.split('\n');
+    const cited = lines.slice(0, 15);
+    expect(answer.reveal!.refs).toHaveLength(1);
+    expect(answer.reveal!.refs[0]).toMatchObject({ path: gradingPath, startLine: gradingLines.start, approximate: false });
+    expect(answer.reveal!.refs[0]!.excerpt).toEqual({ language: 'typescript', text: cited.join('\n'), ...(lines.length > 15 ? { truncated: true } : {}) });
+
+    const shown = textOf(response);
+    const feedback = between(shown, FEEDBACK_START, FEEDBACK_END);
+    expect(feedback).toContain(privateExplanationMarker);
+    expect(feedback).toContain(`Cited code:\n${gradingPath}:${gradingLines.start}-${gradingLines.end}`);
+    expect(feedback).toContain(`\`\`\`typescript\n${cited.join('\n')}\n\`\`\``);
+    // The explanation and refs live only in the feedback block; the next question's block and data stay answer-free.
+    const relay = between(shown, '<<<SHOW TO USER VERBATIM', 'SHOW TO USER VERBATIM>>>');
+    expect(relay).not.toMatch(/Cited code|ANSWER FEEDBACK/);
+    assertNoAnswerText(relay, 'next question block');
+    assertPreAnswerQuestion(answer.next!, 'next after reveal');
+    assertNoForbiddenKeys(answer.next, 'next after reveal');
+    expect(shown.indexOf(FEEDBACK_END)).toBeLessThan(shown.indexOf('<<<SHOW TO USER VERBATIM'));
+    await drain(start.session!.id, answer.next);
+  });
+
+  it('MCP reveal has no excerpt, and no fenced source, when previews are off (closed book)', async () => {
+    const start = (await call('start_quiz', { chunkId: gradingChunk, lang: 'en', includeCode: false })).structuredContent as StartQuizOut;
+    expect(start.question).not.toHaveProperty('code');
+    const response = await harness.callTool('submit_answer', { sessionId: start.session!.id, questionId: start.question!.questionId, displayIndex: 0 });
+    const answer = response.structuredContent as SubmitAnswerOut;
+    expect(answer.reveal!.refs.length).toBeGreaterThan(0);
+    for (const ref of answer.reveal!.refs) expect(ref).not.toHaveProperty('excerpt');
+    expect(answer.next).not.toHaveProperty('code');
+    const shown = textOf(response);
+    expect(shown).not.toContain('```');
+    expect(between(shown, FEEDBACK_START, FEEDBACK_END)).toContain('Cited code:');
+    expect(between(shown, FEEDBACK_START, FEEDBACK_END)).toContain(`${gradingPath}:${gradingLines.start}-${gradingLines.end}`);
+    await drain(start.session!.id, answer.next);
+  });
+
+  it('MCP elicitation form shows only the previous reveal, as plain numbered lines, never the current question\'s', async () => {
+    const client = new Client({ name: 'gotchea-e2e-elicitation-reveal', version: '1.0.0' }, { capabilities: { elicitation: {} } });
+    const transport = new StdioClientTransport({
+      command: harness.target.command,
+      args: [...harness.target.args, 'mcp'],
+      cwd: harness.fixture.root,
+      env: { ...harness.fixture.env, GOTCHEA_MCP_ELICIT: 'on' },
+      stderr: 'pipe',
+    });
+    const messages: string[] = [];
+    client.setRequestHandler(ElicitRequestSchema, async (req) => {
+      if (req.params.mode === 'url') throw new Error('Expected a form prompt');
+      messages.push(req.params.message);
+      // The schema's one field is named `answer` (the user's pick), so only its contents are scanned.
+      assertNoAnswerData(req.params.requestedSchema, 'elicitation schema');
+      return messages.length === 1 ? { action: 'accept', content: { answer: 'A' } } : { action: 'cancel' };
+    });
+    try {
+      await client.connect(transport, { timeout: 120_000 });
+      const result = await client.callTool({ name: 'start_quiz', arguments: { chunkId: gradingChunk, lang: 'en' } });
+      expect((result.structuredContent as StartQuizOut).status).toBe('cancelled');
+      expect(messages).toHaveLength(2);
+      // Every question shares the same explanation marker: exactly one occurrence means only question 1's reveal is in question 2's form.
+      expect(messages[0]!).not.toContain(privateExplanationMarker);
+      expect(messages[1]!.split(privateExplanationMarker).length - 1).toBe(1);
+      expect(messages[1]!).toContain('Cited code:');
+      expect(messages[1]!).toMatch(/\d+ │ /);
+      expect(messages[1]!).not.toContain('```');
+      assertNoForbiddenKeys(result, 'elicitation reveal result');
+      // Whether or not the cancelled session stays resumable, finish whatever comes back so later tests start fresh.
+      const resumed = (await harness.callTool('start_quiz', { chunkId: gradingChunk, lang: 'en' })).structuredContent as StartQuizOut;
+      expect(['started', 'resumed']).toContain(resumed.status);
+      await drain(resumed.session!.id, resumed.question);
+    } finally {
+      try { await client.close(); } finally { await transport.close(); }
+    }
+  });
+
   it('after an unscanned source edit the preview is left out over MCP and the CLI, other chunks keep theirs', async () => {
     const edited = gradingSource.replace("RangeError('Selection out of range')", "RangeError('Selection must be 0-3')");
     expect(edited).not.toBe(gradingSource);
@@ -314,6 +408,12 @@ describe('C: quiz code previews never carry answers and disappear for stale chun
       expect(item.text ?? '').not.toContain('```');
       assertNoAnswerText(item.text ?? '', 'stale start_quiz text');
     }
+    // The reveal drops its excerpt too: the cited lines may no longer be what the question was written about.
+    const staleAnswer = await harness.callTool('submit_answer', { sessionId: data.session!.id, questionId: data.question!.questionId, displayIndex: 0 });
+    const staleReveal = (staleAnswer.structuredContent as SubmitAnswerOut).reveal!;
+    expect(staleReveal.refs.length).toBeGreaterThan(0);
+    for (const ref of staleReveal.refs) expect(ref).not.toHaveProperty('excerpt');
+    expect(textOf(staleAnswer)).not.toContain('```typescript');
     // Staleness is per chunk: an untouched file still gets its preview.
     const fresh = (await harness.callTool('start_quiz', { chunkId: 'src/math.ts', lang: 'en' })).structuredContent as StartQuizOut;
     expect(fresh.question!.code?.path).toBe('src/math.ts');

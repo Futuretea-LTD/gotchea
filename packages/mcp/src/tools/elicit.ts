@@ -17,7 +17,7 @@ import {
   type SubmitRefusal,
 } from 'gotchea-core';
 import type { Messages } from '../i18n.js';
-import { clip, elicitCodeLines, optionLines, revealText } from './quiz-text.js';
+import { clip, elicitCodeLines, optionLines, revealPlain } from './quiz-text.js';
 
 /** The SDK's default request timeout is 60 s; a person reading a question needs longer. */
 export const ELICIT_TIMEOUT_MS = 600_000;
@@ -64,7 +64,7 @@ export async function elicitQuiz(
   const reveals: RevealView[] = [];
   let question = assertPublicView(first);
   for (;;) {
-    const previous = reveals.length > 0 ? `${revealText(reveals[reveals.length - 1]!)}\n\n` : '';
+    const previous = reveals.length > 0 ? `${revealPlain(reveals[reveals.length - 1]!, messages)}\n\n` : '';
     const code = elicitCodeLines(question.code, messages);
     const message = `${previous}Question ${question.position} of ${question.total}\n\n${code ? `${code}\n\n` : ''}${sanitizeTerminalText(question.stem)}\n\n${optionLines(question)}\n\nPick A, B, C or D below.`;
     if (message.length > ELICIT_MESSAGE_MAX || (question.code && question.code.endLine - question.code.startLine + 1 > ELICIT_CODE_MAX_LINES)) {

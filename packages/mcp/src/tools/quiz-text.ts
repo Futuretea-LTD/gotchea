@@ -20,8 +20,21 @@ import { type Messages, messagesFor } from '../i18n.js';
 export const ASK_USER = 'Ask the question to the user, do not guess the answer yourself.';
 export const RELAY_START = '<<<SHOW TO USER VERBATIM';
 export const RELAY_END = 'SHOW TO USER VERBATIM>>>';
-export const RELAY_VERBATIM = `Show the user everything between the markers verbatim, exactly as written: the code block with its header, the question and all four options in full. Do not shorten, paraphrase or drop any of it. ${ASK_USER} If you also offer a multiple-choice selection UI, label its choices only "A", "B", "C", "D" (the full text is already in your message).`;
-export const ELICIT_TITLE_MAX = 60;
+/** A second pair, so a question block still holds exactly one question and reveals stay outside it. */
+export const RELAY_RESULT_START = '<<<SHOW ANSWER FEEDBACK TO USER VERBATIM';
+export const RELAY_RESULT_END = 'SHOW ANSWER FEEDBACK TO USER VERBATIM>>>';
+export const RELAY_VERBATIM = `Show the user everything between the markers verbatim, exactly as written: the code block with its header, the question and all four options in full. Do not shorten, paraphrase or drop any of it. ${ASK_USER} If you also offer a multiple-choice selection UI, label its choices only "A", "B", "C", "D" (the full text is already in your message). After an answer, also show the answer-feedback block between its own markers verbatim: the correct option, the explanation and the cited code.`;
+
+/** Server-level instructions: clients may truncate tool descriptions, these are shown in full. */
+export const DISPLAY_INSTRUCTIONS = [
+  'gotchea quiz display rules:',
+  `- Show everything between ${RELAY_START} and ${RELAY_END} verbatim: the code block with its path:line header, the question and all four options in full.`,
+  `- Show every block between ${RELAY_RESULT_START} and ${RELAY_RESULT_END} verbatim: the correct option, the explanation and the cited code.`,
+  '- Never replace option text with short labels. If you offer a selection UI, label its choices only A, B, C, D.',
+  `- ${ASK_USER}`,
+].join('\n');
+/** Widget titles are short, stable A–D labels; the full options are always in the message text. */
+export const ELICIT_TITLE_MAX = 24;
 
 /** Short widget titles are navigation; the full options remain in the prompt. */
 export function clip(text: string, max = ELICIT_TITLE_MAX): string {
@@ -31,13 +44,21 @@ export function clip(text: string, max = ELICIT_TITLE_MAX): string {
 
 export const START_QUIZ_DESCRIPTION = `Start a comprehension quiz on one chunk of this repository. Pass \`path\` (a directory, file or symbol: the chunk that most needs review under it is picked) or \`chunkId\`; with neither, the whole repo is considered. Optional \`count\` shortens the quiz (default: the chunk's size, 3–7). Returns the first multiple-choice question with the code it is about, between verbatim relay markers. ${RELAY_VERBATIM} Then call \`submit_answer\` with the option the user picked. The correct answer and explanation are revealed only after you submit.`;
 
-export const SUBMIT_ANSWER_DESCRIPTION = `Submit the user's answer to the current quiz question. \`displayIndex\` is the position of the option the user picked, as shown by \`start_quiz\` or the previous \`submit_answer\` (A=0, B=1, C=2, D=3). Answers are final and must be given in order. Returns whether it was correct, the correct option, the explanation and the line references, then the next question with its code, between verbatim relay markers. ${RELAY_VERBATIM} After the last question this returns the result: pass/fail, the chunk's new colour and an updated mini heatmap.`;
+export const SUBMIT_ANSWER_DESCRIPTION = `Submit the user's answer to the current quiz question. \`displayIndex\` is the position of the option the user picked, as shown by \`start_quiz\` or the previous \`submit_answer\` (A=0, B=1, C=2, D=3). Answers are final and must be given in order. Returns an answer-feedback block (whether it was correct, the correct option, the explanation and the cited code), then the next question with its code, each between verbatim relay markers. Show the answer-feedback block verbatim too. ${RELAY_VERBATIM} After the last question this returns the result: pass/fail, the chunk's new colour and an updated mini heatmap.`;
 
 const pct = (R: number | null): string => (R === null ? '–' : `${Math.round(R * 100)}%`);
 const day = (iso: string): string => iso.slice(0, 10);
 
+/**
+ * Continuation lines of model-written text are indented by four spaces: Markdown honours a fence
+ * indented by up to three, so a ``` line inside an option, correct answer or explanation could
+ * otherwise open a fence that swallows the rest of the message, or pose as the next labelled line.
+ */
+const indentContinuation = (text: string): string => sanitizeTerminalText(text).split('\n').join('\n    ');
+
+/** Every option in full, in display order. */
 export function optionLines(q: PublicQuestionView): string {
-  return q.options.map((o) => `${o.label}) ${sanitizeTerminalText(o.text)}`).join('\n');
+  return q.options.map((o) => `${o.label}) ${indentContinuation(o.text)}`).join('\n');
 }
 
 /** A fence longer than any backtick run in the source, so the snippet can't close it early. */
@@ -46,13 +67,17 @@ function fenceFor(text: string): string {
   return '`'.repeat(Math.max(3, longest + 1));
 }
 
+function fenced(text: string, language: string): string {
+  const fence = fenceFor(text);
+  // The info string is one word; anything else from chunks.json is dropped rather than echoed.
+  const info = /^[\w+#.-]+$/.test(language) ? language : '';
+  return `${fence}${info}\n${text}\n${fence}`;
+}
+
 /** The question's code preview as a fenced block under a header; empty when the view has none. */
 export function codeBlock(code: PublicQuestionView['code'], messages: Messages): string {
   if (!code) return '';
-  const fence = fenceFor(code.text);
-  // The info string is one word; anything else from chunks.json is dropped rather than echoed.
-  const info = /^[\w+#.-]+$/.test(code.language) ? code.language : '';
-  return `${messages.codeHeader(code.path, code.startLine, code.endLine, code.truncated === true)}\n${fence}${info}\n${code.text}\n${fence}`;
+  return `${messages.codeHeader(code.path, code.startLine, code.endLine, code.truncated === true)}\n${fenced(code.text, code.language)}`;
 }
 
 /** Code first, then the stem and options: the question is read against the code above it. */
@@ -75,6 +100,10 @@ export function elicitCodeLines(code: PublicQuestionView['code'], messages: Mess
   return [messages.codeHeader(code.path, code.startLine, code.endLine, code.truncated === true), ...lines].join('\n');
 }
 
+/** Said outside the relay block: the agent and user can tell a missing preview from a bug. */
+const NO_PREVIEW = 'No code preview for this question (turned off, or the file changed since the last scan; the scan tool refreshes it).';
+const previewHint = (q: PublicQuestionView): string[] => (q.code ? [] : ['', NO_PREVIEW]);
+
 const callHint = (sessionId: string, questionId: string): string =>
   `Then call submit_answer with { "sessionId": "${sessionId}", "questionId": "${questionId}", "displayIndex": <0-3> } (A=0, B=1, C=2, D=3).`;
 
@@ -86,6 +115,7 @@ export function startedText(status: 'started' | 'resumed', s: SessionHeader, q: 
   lines.push(
     '',
     relayBlock(q, messages),
+    ...previewHint(q),
     '',
     RELAY_VERBATIM,
     callHint(s.id, q.questionId),
@@ -93,21 +123,43 @@ export function startedText(status: 'started' | 'resumed', s: SessionHeader, q: 
   return lines.join('\n');
 }
 
-export function formatRefs(refs: RevealView['refs']): string {
-  return refs
-    .map((r) => {
-      const span = r.startLine === r.endLine ? `L${r.startLine}` : `L${r.startLine}–L${r.endLine}`;
-      return `${sanitizeTerminalText(r.path)} ${r.approximate ? '≈ ' : ''}${span}`;
-    })
-    .join(', ');
+function revealHead(r: RevealView): string[] {
+  const lines = [`${r.correct ? '✅ Correct.' : '❌ Incorrect.'} You chose ${LABELS[r.selectedDisplayIndex]}.`];
+  if (!r.correct) lines.push(`Correct answer: ${LABELS[r.correctDisplayIndex]}) ${indentContinuation(r.correctText)}`);
+  lines.push(`Explanation: ${indentContinuation(r.explanation)}`);
+  return lines;
 }
 
-export function revealText(r: RevealView): string {
-  const lines = [`${r.correct ? '✅ Correct.' : '❌ Incorrect.'} You chose ${LABELS[r.selectedDisplayIndex]}.`];
-  if (!r.correct) lines.push(`Correct answer: ${LABELS[r.correctDisplayIndex]}) ${sanitizeTerminalText(r.correctText)}`);
-  lines.push(`Explanation: ${sanitizeTerminalText(r.explanation)}`);
-  if (r.refs.length > 0) lines.push(`Look at: ${formatRefs(r.refs)}`);
+const refHeader = (ref: RevealView['refs'][number], messages: Messages): string =>
+  messages.refHeader(sanitizeTerminalText(ref.path), ref.startLine, ref.endLine, ref.approximate, ref.excerpt?.truncated === true);
+
+/** Reveal as Markdown for tool text: each cited range under a `path:start-end` header, fenced when it has source. */
+export function revealText(r: RevealView, messages: Messages = messagesFor()): string {
+  const lines = revealHead(r);
+  if (r.refs.length > 0) {
+    lines.push(messages.citedCode);
+    lines.push(...r.refs.map((ref) => (ref.excerpt ? `${refHeader(ref, messages)}\n${fenced(ref.excerpt.text, ref.excerpt.language)}` : refHeader(ref, messages))));
+  }
   return lines.join('\n');
+}
+
+/** Form messages render as plain text, so the same facts without fences and with numbered lines. */
+export function revealPlain(r: RevealView, messages: Messages = messagesFor()): string {
+  const lines = revealHead(r);
+  if (r.refs.length > 0) lines.push(messages.citedCode);
+  for (const ref of r.refs) {
+    lines.push(refHeader(ref, messages));
+    if (!ref.excerpt) continue;
+    const width = String(ref.endLine).length;
+    lines.push(...ref.excerpt.text.split('\n').map((line, i) => `${String(ref.startLine + i).padStart(width)} │ ${line}`));
+  }
+  return lines.join('\n');
+}
+
+/** Same delimiter escaping as `relayBlock`: only our outer markers may delimit hand-editable content. */
+export function revealBlock(r: RevealView, messages: Messages = messagesFor()): string {
+  const body = revealText(r, messages).replaceAll('<<<', '‹‹‹').replaceAll('>>>', '›››');
+  return `${RELAY_RESULT_START}\n${body}\n${RELAY_RESULT_END}`;
 }
 
 export function answeredText(
@@ -118,13 +170,14 @@ export function answeredText(
   messages: Messages = messagesFor(),
 ): string {
   return [
-    revealText(r),
+    revealBlock(r, messages),
     '',
     `Score so far: ${progress.correct}/${progress.answered} · question ${progress.answered} of ${progress.total} done`,
     '',
     `Next — question ${next.position} of ${next.total}:`,
     '',
     relayBlock(next, messages),
+    ...previewHint(next),
     '',
     `${RELAY_VERBATIM} ${callHint(sessionId, next.questionId)}`,
   ].join('\n');

@@ -11,6 +11,9 @@ const en = {
   questionCount: (count: number): string => `${count} ${count === 1 ? 'question' : 'questions'}`,
   codeHeader: (path: string, start: number, end: number, truncated: boolean): string =>
     `Code: ${path}:${span(start, end)}${truncated ? ' (truncated)' : ''}`,
+  citedCode: 'Cited code:',
+  refHeader: (path: string, start: number, end: number, approximate: boolean, truncated: boolean): string =>
+    `${path}:${span(start, end)}${approximate ? ' (approximate)' : ''}${truncated ? ' (truncated)' : ''}`,
 };
 
 export type Messages = typeof en;
@@ -25,6 +28,9 @@ export const messages: Record<'en' | 'tr', Messages> = {
     mapSummary: (chunks, questions, next) => `${chunks} chunk · ${questions} soru · sonraki adım: ${next}`,
     questionCount: (count) => `${count} soru`,
     codeHeader: (path, start, end, truncated) => `Kod: ${path}:${span(start, end)}${truncated ? ' (kısaltıldı)' : ''}`,
+    citedCode: 'Anılan kod:',
+    refHeader: (path, start, end, approximate, truncated) =>
+      `${path}:${span(start, end)}${approximate ? ' (yaklaşık)' : ''}${truncated ? ' (kısaltıldı)' : ''}`,
   },
 };
 

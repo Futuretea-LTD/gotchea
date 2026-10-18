@@ -7,7 +7,8 @@ import { FsChunkStore, FsProgressStore, chunkLineCount, computeRepoId, seededRng
 import { FsQuestionStore, type QuestionPrivate } from 'gotchea-core/internal';
 import { StartQuizOutputSchema, SubmitAnswerOutputSchema } from '../src/schemas.js';
 import { messages } from '../src/i18n.js';
-import { ASK_USER, RELAY_START, RELAY_END, ELICIT_TITLE_MAX, codeBlock, clip } from '../src/tools/quiz-text.js';
+import { ASK_USER, DISPLAY_INSTRUCTIONS, RELAY_START, RELAY_END, RELAY_RESULT_START, RELAY_RESULT_END, RELAY_VERBATIM, ELICIT_TITLE_MAX, codeBlock, clip, revealBlock, revealPlain } from '../src/tools/quiz-text.js';
+import type { RevealView } from 'gotchea-core';
 import { NOW, connect, createFixture, text, type Fixture } from './helpers.js';
 
 const LEAF = 'src/math.ts';
@@ -302,7 +303,10 @@ describe('submit_answer', () => {
         expect(text(res)).toContain(EXPLAIN);
         expect(out.reveal!.correct).toBe(n !== 1);
         expect(out.reveal!.refs).toEqual([expect.objectContaining({ path: LEAF, startLine: 2, endLine: 3, approximate: false })]);
-        if (n === 1) expect(text(res)).toMatch(/❌ Incorrect[\s\S]*Correct answer: [A-D]\) q1-correct[\s\S]*Look at: src\/math\.ts L2–L3/);
+        if (n === 1) {
+          expect(text(res)).toMatch(/❌ Incorrect[\s\S]*Correct answer: [A-D]\) q1-correct[\s\S]*Cited code:\nsrc\/math\.ts:2-3\n```typescript\n {2}if \(n < lo\)/);
+          expect(out.reveal!.refs[0]!.excerpt).toMatchObject({ language: 'typescript' });
+        }
         if (out.status === 'answered') {
           expect(n).toBeLessThan(total);
           expect(out.result).toBeNull();
@@ -501,7 +505,7 @@ describe('complete question display', () => {
       let q = start.question!;
       for (;;) {
         const t = text(res);
-        for (const o of q.options) expect(t).toContain(`${o.label}) ${o.text}`);
+        for (const o of q.options) expect(t).toContain(`${o.label}) ${o.text.split('\n').join('\n    ')}`);
         expect(t).toContain(RELAY_START);
         expect(t).toContain(RELAY_END);
         res = await call(c, 'submit_answer', { sessionId: start.session!.id, questionId: q.questionId, displayIndex: 0 });
@@ -526,7 +530,7 @@ describe('complete question display', () => {
         expect(o.title).not.toMatch(/[\r\n]/);
         expect(o.title.endsWith('…')).toBe(true);
       }
-      for (const option of qs[0]!.options) expect(req.params.message).toContain(option);
+      for (const option of qs[0]!.options) expect(req.params.message).toContain(option.split('\n').join('\n    '));
       expect(req.params.message).toMatch(/1 │ export function clamp/);
       expect(req.params.message).not.toContain('```');
       return { action: 'accept', content: { answer: 'A' } };
@@ -564,6 +568,121 @@ describe('complete question display', () => {
 
   it('clips every title uniformly by code points after collapsing whitespace', () => {
     expect(clip('  a\n b\t c  ')).toBe('a b c');
-    expect(clip('😀'.repeat(70))).toBe(`${'😀'.repeat(59)}…`);
+    expect(clip('😀'.repeat(70))).toBe(`${'😀'.repeat(ELICIT_TITLE_MAX - 1)}…`);
+  });
+
+  it('keeps over-200-char multi-line options in full, in display order, inside the markers, and maps labels to display indexes', async () => {
+    const store = new FsQuestionStore(fx.root);
+    const qs = (await store.list(LEAF))!;
+    const long = (i: number) => `OPT${i}-${'x'.repeat(220)}\n- not a list ${i}\n    const v${i} = `+'`code`'+`;\n1. nor this`;
+    for (const q of qs) q.options = [0, 1, 2, 3].map(long) as QuestionPrivate['options'];
+    await store.save(LEAF, qs);
+    const c = await connect(fx.root, fx.env, { elicitation: 'auto', capabilities: { elicitation: {} } });
+    const picks: string[] = [];
+    c.client.setRequestHandler(ElicitRequestSchema, async (req) => {
+      if (req.params.mode === 'url') throw new Error('form expected');
+      const oneOf = (req.params.requestedSchema as unknown as { properties: { answer: { oneOf: { const: string; title: string }[] } } }).properties.answer.oneOf;
+      oneOf.forEach((o, i) => {
+        expect(o.const).toBe('ABCD'[i]);
+        expect(o.title.startsWith(`${'ABCD'[i]}) `)).toBe(true);
+      });
+      picks.push('D');
+      return { action: 'accept', content: { answer: 'D' } };
+    });
+    try {
+      expect(sc(await call(c, 'start_quiz', { chunkId: LEAF })).status).toBe('completed');
+      expect(picks.length).toBeGreaterThan(0);
+    } finally { await c.close(); }
+
+    const t = await connect(fx.root, fx.env);
+    try {
+      const res = await call(t, 'start_quiz', { chunkId: LEAF });
+      const q = StartQuizOutputSchema.parse(sc(res)).question!;
+      const body = text(res).split(RELAY_START)[1]!.split(RELAY_END)[0]!;
+      let at = -1;
+      for (const o of q.options) {
+        expect(o.text.length).toBeGreaterThan(200);
+        const want = `${o.label}) ${o.text.split('\n').join('\n    ')}`;
+        const idx = body.indexOf(want);
+        expect(idx).toBeGreaterThan(at);
+        at = idx;
+      }
+    } finally { await t.close(); }
+  });
+});
+
+describe('answer-feedback block', () => {
+  const reveal = (refs: RevealView['refs']): RevealView => ({ questionId: 'q_000000000001', correct: false, selectedDisplayIndex: 0, correctDisplayIndex: 2, correctText: 'right one', explanation: 'because', refs });
+  const ref = { path: 'src/a.ts', startLine: 4, endLine: 5, approximate: false };
+
+  it('wraps the reveal in its own markers, with a path:start-end header and a tagged fence per cited range', () => {
+    const block = revealBlock(reveal([{ ...ref, excerpt: { language: 'typescript', text: 'const a = 1;\nconst b = 2;' } }]));
+    expect(block).toBe(
+      `${RELAY_RESULT_START}\n❌ Incorrect. You chose A.\nCorrect answer: C) right one\nExplanation: because\nCited code:\nsrc/a.ts:4-5\n\`\`\`typescript\nconst a = 1;\nconst b = 2;\n\`\`\`\n${RELAY_RESULT_END}`,
+    );
+    expect(RELAY_RESULT_START).not.toContain(RELAY_START);
+  });
+
+  it('marks approximate and truncated refs, prints a bare header without an excerpt, and localises', () => {
+    const r = reveal([
+      { ...ref, approximate: true },
+      { path: 'src/b.ts', startLine: 1, endLine: 20, approximate: false, excerpt: { language: 'text', text: 'x', truncated: true } },
+    ]);
+    const en = revealBlock(r);
+    expect(en).toContain('src/a.ts:4-5 (approximate)\nsrc/b.ts:1-20 (truncated)\n```text\nx\n```');
+    const tr = revealBlock(r, messages.tr);
+    expect(tr).toContain('Anılan kod:\nsrc/a.ts:4-5 (yaklaşık)');
+    expect(tr).toContain('src/b.ts:1-20 (kısaltıldı)');
+  });
+
+  it('omits the cited-code section when there are no refs', () => {
+    expect(revealBlock(reveal([]))).not.toContain('Cited code');
+  });
+
+  it('has a plain form variant without fences, numbering the lines from the ref start', () => {
+    const plain = revealPlain(reveal([{ ...ref, startLine: 9, endLine: 10, excerpt: { language: 'typescript', text: 'a\nb' } }]));
+    expect(plain).not.toContain('```');
+    expect(plain).not.toContain(RELAY_RESULT_START);
+    expect(plain).toContain('Cited code:\nsrc/a.ts:9-10\n 9 │ a\n10 │ b');
+  });
+
+  it('says so, outside the relay block, when a question has no code preview', async () => {
+    const c = await connect(fx.root, fx.env);
+    try {
+      const off = await call(c, 'start_quiz', { chunkId: LEAF, includeCode: false });
+      expect(text(off)).toContain('No code preview for this question');
+      expect(text(off).indexOf('No code preview')).toBeGreaterThan(text(off).indexOf(RELAY_END));
+      const started = StartQuizOutputSchema.parse(sc(off));
+      const sessionId = started.session!.id;
+      const q = started.question!;
+      const res = await call(c, 'submit_answer', { sessionId, questionId: q.questionId, displayIndex: 0 });
+      expect(text(res)).toContain('No code preview for this question');
+      // closed book: no excerpt in the reveal either
+      expect(SubmitAnswerOutputSchema.parse(sc(res)).reveal!.refs[0]).not.toHaveProperty('excerpt');
+      expect(text(res)).toMatch(/Cited code:\nsrc\/math\.ts:2-3\n/);
+      expect(text(res).slice(0, text(res).indexOf(RELAY_RESULT_END))).not.toContain('```');
+    } finally {
+      await c.close();
+    }
+    const c2 = await connect(fx.root, fx.env);
+    try {
+      expect(text(await call(c2, 'start_quiz', { chunkId: LEAF, includeCode: true }))).not.toContain('No code preview');
+    } finally {
+      await c2.close();
+    }
+  });
+
+  it('repeats the relay instruction once per result and exposes server instructions', async () => {
+    const c = await connect(fx.root, fx.env);
+    try {
+      const res = await call(c, 'start_quiz', { chunkId: LEAF });
+      expect(text(res).split(RELAY_VERBATIM).length - 1).toBe(1);
+      expect(c.client.getInstructions()).toBe(DISPLAY_INSTRUCTIONS);
+      expect(DISPLAY_INSTRUCTIONS).toContain(RELAY_RESULT_START);
+      const tools = (await c.client.listTools()).tools;
+      expect(tools.find((t) => t.name === 'submit_answer')!.description).toContain('answer-feedback block');
+    } finally {
+      await c.close();
+    }
   });
 });

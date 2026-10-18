@@ -24,6 +24,9 @@ import {
   type PublicQuestionView,
   type RevealView,
   PublicCodePreviewSchema,
+  REF_EXCERPT_MAX_LINES,
+  REVEAL_EXCERPT_MAX_LINES,
+  RevealRefSchema,
   assertPublicView,
   codePreview,
   toPrivateView,
@@ -169,28 +172,66 @@ async function insideRoot(root: string, path: string): Promise<boolean> {
 }
 
 /**
- * The chunk's working-tree source, or null when it can't be shown faithfully: a file that is
- * missing or outside the repo, or a chunk whose current hash (re-chunked like a scan does) no
- * longer matches chunks.json, so its lines may not be the code the questions were written for.
- * Multi-range chunks (a `~body` remainder) get none, since one line span can't describe them.
- * Never throws: a preview is optional and a stale chunk is reported elsewhere.
+ * The chunk's sanitized working-tree lines, or null when they can't be shown faithfully: a file
+ * that is missing or outside the repo, or a chunk whose current hash (re-chunked like a scan does)
+ * no longer matches chunks.json, so its lines may not be the code the questions were written for.
+ * Per line, after splitting: a stray `\r` becomes a stand-in, never a line break, so line counts
+ * still match the scanned ranges. Never throws: code is optional and a stale chunk is reported elsewhere.
  */
-async function chunkPreview(root: string, chunk: Chunk, config: GotcheaConfig): Promise<PublicCodePreview | null> {
-  const range = chunk.ranges.length === 1 ? chunk.ranges[0]! : undefined;
-  if (!range || !(await insideRoot(root, range.path))) return null;
+async function sanitizedLines(root: string, chunk: Chunk, config: GotcheaConfig, path: string): Promise<string[] | null> {
+  if (!(await insideRoot(root, path))) return null;
   try {
     const reader = new SourceReader(root, config);
     if ((await reader.currentHash(chunk)) !== chunk.contentHash) return null;
-    // Per line, after splitting: a stray `\r` becomes a stand-in, never a line break, so the
-    // line count and the 60-line cap still match the scanned range.
-    const lines = (await reader.lines(range.path)).slice(range.start - 1, range.end).map(sanitizeTerminalText);
-    const language = sanitizeTerminalText(languageOf(range.path, chunk.lang));
-    const preview = codePreview(sanitizeTerminalText(range.path), range.start, language, lines);
-    // A hand-edited chunk (e.g. an empty `lang`) must cost the preview, not fail assertPublicView and the quiz.
-    return preview && PublicCodePreviewSchema.safeParse(preview).success ? preview : null;
+    return (await reader.lines(path)).map(sanitizeTerminalText);
   } catch {
     return null;
   }
+}
+
+/** Multi-range chunks (a `~body` remainder) get none, since one line span can't describe them. */
+async function chunkPreview(root: string, chunk: Chunk, config: GotcheaConfig): Promise<PublicCodePreview | null> {
+  const range = chunk.ranges.length === 1 ? chunk.ranges[0]! : undefined;
+  if (!range) return null;
+  const all = await sanitizedLines(root, chunk, config, range.path);
+  if (!all) return null;
+  const language = sanitizeTerminalText(languageOf(range.path, chunk.lang));
+  const preview = codePreview(sanitizeTerminalText(range.path), range.start, language, all.slice(range.start - 1, range.end));
+  // A hand-edited chunk (e.g. an empty `lang`) must cost the preview, not fail assertPublicView and the quiz.
+  return preview && PublicCodePreviewSchema.safeParse(preview).success ? preview : null;
+}
+
+/**
+ * Adds the cited source to each exact ref of a reveal, within the per-ref and per-reveal caps.
+ * Approximate refs keep numbers only: their range may point at the wrong lines. Called after the
+ * answer is recorded, and only with previews on, so closed-book sessions never see code here.
+ */
+async function withRefExcerpts(root: string, chunk: Chunk, config: GotcheaConfig, reveal: RevealView): Promise<RevealView> {
+  let budget = REVEAL_EXCERPT_MAX_LINES;
+  const cache = new Map<string, string[] | null>();
+  const refs: RevealView['refs'] = [];
+  for (const ref of reveal.refs) {
+    // Only ranges of this chunk are citable, so a ref can't name an arbitrary file.
+    const owned = chunk.ranges.some((r) => r.path === ref.path && ref.startLine >= r.start && ref.endLine <= r.end);
+    if (!owned || ref.approximate || budget <= 0 || ref.endLine < ref.startLine) {
+      refs.push(ref);
+      continue;
+    }
+    if (!cache.has(ref.path)) cache.set(ref.path, await sanitizedLines(root, chunk, config, ref.path));
+    const all = cache.get(ref.path);
+    const slice = all?.slice(ref.startLine - 1, ref.endLine);
+    if (!slice || slice.length === 0) {
+      refs.push(ref);
+      continue;
+    }
+    const kept = slice.slice(0, Math.min(REF_EXCERPT_MAX_LINES, budget));
+    budget -= kept.length;
+    const language = sanitizeTerminalText(languageOf(ref.path, chunk.lang));
+    const excerpt = { language, text: kept.join('\n'), ...(kept.length < slice.length ? { truncated: true as const } : {}) };
+    const withExcerpt = { ...ref, excerpt };
+    refs.push(RevealRefSchema.safeParse(withExcerpt).success ? withExcerpt : ref);
+  }
+  return { ...reveal, refs };
 }
 
 function nextUnanswered(session: Session): string | undefined {
@@ -325,7 +366,9 @@ export async function submitAnswer(root: string, input: SubmitAnswerInput, deps:
   const total = done.questionIds.length;
   const perm = done.permutations[input.questionId]!;
   const private_: PrivateQuestionView = toPrivateView(question, perm, done.questionIds.indexOf(input.questionId) + 1, total);
-  const reveal = toRevealView(private_, input.displayIndex, chunk);
+  const showCode = input.includeCode ?? done.showCode ?? true;
+  const revealed = toRevealView(private_, input.displayIndex, chunk);
+  const reveal = showCode ? await withRefExcerpts(root, chunk, config, revealed) : revealed;
   const answered = done.questionIds.filter((q) => done.answers[q]).length;
   const progress = { answered, total, correct: done.questionIds.filter((q) => done.answers[q]?.correct).length };
   const base = { repeat: recorded.repeat, sessionId: done.id, reveal, progress };
@@ -334,7 +377,7 @@ export async function submitAnswer(root: string, input: SubmitAnswerInput, deps:
   if (nextId !== undefined) {
     const nq = (await new FsQuestionStore(root).list(chunk.id)).find((q) => q.id === nextId);
     if (!nq || !isUsable(nq, done.chunkHash)) return refuseSubmit('question_unavailable');
-    const code = (input.includeCode ?? done.showCode ?? true) ? await chunkPreview(root, chunk, config) : null;
+    const code = showCode ? await chunkPreview(root, chunk, config) : null;
     return { status: 'answered', ...base, next: assertPublicView(toPublicView(nq, done.permutations[nextId]!, answered + 1, total, code)) };
   }
 

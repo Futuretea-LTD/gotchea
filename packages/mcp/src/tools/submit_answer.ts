@@ -3,7 +3,7 @@ import { assertPublicView, isInitialized, loadConfig, submitAnswer } from 'gotch
 import { INIT_MESSAGE, guarded, textResult, type ToolContext } from '../context.js';
 import { messagesFor } from '../i18n.js';
 import { SUBMIT_ANSWER_REASONS, SubmitAnswerInputSchema, SubmitAnswerOutputSchema, type SubmitAnswerOut } from '../schemas.js';
-import { SUBMIT_ANSWER_DESCRIPTION, answeredText, resultText, revealText, submitRefusal } from './quiz-text.js';
+import { SUBMIT_ANSWER_DESCRIPTION, answeredText, resultText, revealBlock, submitRefusal } from './quiz-text.js';
 
 const EMPTY = { status: null, reason: null, repeat: false, sessionId: null, reveal: null, progress: null, next: null, result: null } as const;
 
@@ -32,14 +32,15 @@ export function registerSubmitAnswer(server: McpServer, ctx: ToolContext): void 
           const text = submitRefusal(res.reason, res.message, config.quiz.sessionTtlMinutes);
           return { ...textResult(text, out), isError: true };
         }
+        const messages = messagesFor(config.questions.lang);
         const base = { initialized: true, scanned: true, ...EMPTY, repeat: res.repeat, sessionId: res.sessionId, reveal: res.reveal, progress: res.progress } as const;
         if (res.status === 'answered') {
           // Core already checks the view; checked again here because this is where it leaves the process.
           const next = assertPublicView(res.next);
-          const text = answeredText(res.sessionId, res.reveal, res.progress, next, messagesFor(config.questions.lang));
+          const text = answeredText(res.sessionId, res.reveal, res.progress, next, messages);
           return textResult(text, { ...base, status: 'answered', next });
         }
-        const text = `${revealText(res.reveal)}\n\n${resultText(res.result, config.score.greenAt)}`;
+        const text = `${revealBlock(res.reveal, messages)}\n\n${resultText(res.result, config.score.greenAt)}`;
         return textResult(text, { ...base, status: 'completed', result: res.result });
       }),
   );

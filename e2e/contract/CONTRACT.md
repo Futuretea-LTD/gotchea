@@ -1,6 +1,6 @@
 # gotchea MCP contract for Orchestea
 
-This document describes the current implementation, including nullable readiness responses and optional elicitation. The companion `tools.snapshot.json` records the tool names and the exact advertised input and output JSON Schemas returned by a real MCP SDK client's `listTools()` call. The snapshot is the executable wire contract; this document explains response semantics and integration rules.
+This document describes the current implementation, including nullable readiness responses and optional elicitation. The companion `tools.snapshot.json` records the server `instructions` and, per tool, the name, description and the exact advertised input and output JSON Schemas returned by a real MCP SDK client's `listTools()` call. The snapshot is the executable wire contract; this document explains response semantics and integration rules.
 
 ## Transport and compatibility
 
@@ -205,11 +205,13 @@ Start refusal reasons: `both_targets`, `unknown_chunk`, `not_leaf`, `no_match`, 
 
 ### Text display contract
 
-The default flow uses `start_quiz` and `submit_answer`. Every question presented in tool-result text, including a next question or an elicitation fallback, is enclosed between the exact marker lines `<<<SHOW TO USER VERBATIM` and `SHOW TO USER VERBATIM>>>`. The marked passage contains the code preview (when available) as a fenced block (language-tagged when `language` is a single word, and longer than any backtick run in the source) under a localized header such as `Code: path:startLine-endLine`, with ` (truncated)` added when cut, then the stem and every option in full, labeled A–D in display order. The agent must show the entire passage verbatim and ask for the user's answer; it must not answer the question itself. A selection widget may use only A–D as labels after the full text is shown. Any reveal of the previous answer stays outside the markers. These markers are a stable text contract for relaying questions; continue to use `structuredContent` for identifiers and application logic.
+The default flow uses `start_quiz` and `submit_answer`. Every question presented in tool-result text, including a next question or an elicitation fallback, is enclosed between the exact marker lines `<<<SHOW TO USER VERBATIM` and `SHOW TO USER VERBATIM>>>`. The marked passage contains the code preview (when available) as a fenced block (language-tagged when `language` is a single word, and longer than any backtick run in the source) under a localized header such as `Code: path:startLine-endLine`, with ` (truncated)` added when cut, then the stem and every option in full, labeled A–D in display order. The agent must show the entire passage verbatim and ask for the user's answer; it must not answer the question itself. A selection widget may use only A–D as labels after the full text is shown. Any reveal of the previous answer stays outside the question markers.
+
+A reveal in tool-result text is enclosed in its own pair, the exact lines `<<<SHOW ANSWER FEEDBACK TO USER VERBATIM` and `SHOW ANSWER FEEDBACK TO USER VERBATIM>>>`. It holds the verdict, the correct option (only after a wrong answer), the explanation and a `Cited code:` section: one `path:startLine-endLine` header per ref (` (approximate)` / ` (truncated)` appended when they apply) followed by the excerpt as a fenced block when the ref has one. The agent must show it verbatim as well. A question block holds exactly one question and never a reveal; the two marker pairs never nest. Multi-line option, correct-answer and explanation text has its continuation lines indented by four spaces, and `<<<` / `>>>` inside any marked passage are replaced by `‹‹‹` / `›››`, so model-written text can neither open a Markdown fence, pose as a labelled line nor forge a marker. When a question has no `code`, one line outside the markers says that no preview is available (previews turned off, or the file changed since the last scan). The server also sends these rules as MCP `instructions` (`DISPLAY_INSTRUCTIONS`), because clients may truncate tool descriptions. These markers are a stable text contract for relaying questions; continue to use `structuredContent` for identifiers and application logic.
 
 ### Optional elicitation
 
-Form elicitation is disabled by default. `GOTCHEA_MCP_ELICIT=on` or `auto` opts in for clients advertising `elicitation.form`; `off` explicitly selects the two-tool text flow. Each form message includes the code as plain numbered lines without Markdown fences, the stem and all options in full. `requestedSchema.answer.oneOf` uses display letters `A`, `B`, `C`, `D` as `const` values, with short, single-line titles: the label plus option text collapsed to one line and clipped to 60 code points. Numeric strings `"0"`–`"3"` are accepted temporarily for clients caching the old schema.
+Form elicitation is disabled by default. `GOTCHEA_MCP_ELICIT=on` or `auto` opts in for clients advertising `elicitation.form`; `off` explicitly selects the two-tool text flow. Each form message includes the code as plain numbered lines without Markdown fences, the stem and all options in full. `requestedSchema.answer.oneOf` uses display letters `A`, `B`, `C`, `D` as `const` values, with short, single-line titles: the label plus option text collapsed to one line and clipped to at most 24 code points (`ELICIT_TITLE_MAX`); the full text is in the form message. Numeric strings `"0"`–`"3"` are accepted temporarily for clients caching the old schema.
 
 A message over 6000 characters or a preview over 40 lines falls back to the complete text flow before presenting that question. Elicitation failures or invalid choices also fall back, possibly with already-recorded reveals in text. Each accepted answer is recorded before its reveal is shown. `completed` returns a final `result`, null `question`, and answer reveals in text; cancellation returns `cancelled` without scoring. For a deterministic Orchestea-managed `start_quiz`/`submit_answer` flow, keep the default or launch with `GOTCHEA_MCP_ELICIT=off`.
 
@@ -222,8 +224,10 @@ type Reveal = {
   questionId: string; correct: boolean;
   selectedDisplayIndex: number; correctDisplayIndex: number; correctText: string;
   explanation: string;
-  refs: { path: string; startLine: number; endLine: number; approximate: boolean }[];
+  refs: { path: string; startLine: number; endLine: number; approximate: boolean; excerpt?: RefExcerpt }[];
 };
+// Strict object. At most 15 lines per ref and 30 per reveal; `truncated` is only ever true.
+type RefExcerpt = { language: string; text: string; truncated?: true };
 type SubmitAnswerOutput = Ready & {
   status: 'answered' | 'completed' | 'refused' | null;
   reason: string | null; repeat: boolean; sessionId: string | null;
@@ -246,7 +250,7 @@ type SessionResult = {
 type HeatCell = { id: string; title: string; color: Color; R: number | null };
 ```
 
-Answers are final and ordered. `answered` returns a reveal only for the submitted question and `next` as a public view (including its optional `code` preview). `completed` returns the last reveal plus a scored session result; `next` is null. Chunk progress is scored after the complete session, so do not expect a chunk to turn green after each individual answer. `needed` is the passing threshold; `passed` is the authoritative outcome. Reveal references use original file lines and may be marked approximate. A repeat of an already recorded identical answer within an active session can return `repeat: true`; do not assume replay remains successful after completion or expiry.
+Answers are final and ordered. `answered` returns a reveal only for the submitted question and `next` as a public view (including its optional `code` preview). `completed` returns the last reveal plus a scored session result; `next` is null. Chunk progress is scored after the complete session, so do not expect a chunk to turn green after each individual answer. `needed` is the passing threshold; `passed` is the authoritative outcome. Reveal references use original file lines and may be marked approximate. A ref carries an `excerpt` (the cited source lines, sanitized like `code.text`) only when the response's previews are on (same `includeCode` / stored-session rule as `code`), the chunk is still fresh, the ref is not `approximate` and the file is readable inside the repository; otherwise the ref keeps its numbers only. The excerpt exists only in the reveal of the question just answered, never before the answer. A repeat of an already recorded identical answer within an active session can return `repeat: true`; do not assume replay remains successful after completion or expiry.
 
 Submit refusal reasons: `unknown_session`, `session_expired`, `session_completed`, `chunk_changed`, `unknown_question`, `out_of_order`, `already_answered`, `invalid_index`, `question_unavailable`. Refusal outputs have `isError: true`, null reveal/progress/next/result, and a structured reason. An invalid input index normally fails input-schema validation before reaching semantic `invalid_index` handling. Before initialization, status/reason are null and readiness flags false.
 
@@ -258,7 +262,7 @@ Before an answer is submitted, recursively reject these object keys in tool outp
 
 ```text
 correctIndex, correctDisplayIndex, correctOptionIndex, correctText,
-explanation, refs, answer, key
+explanation, refs, excerpt, answer, key
 ```
 
 This list is `FORBIDDEN_KEYS` in `packages/core/src/quiz/views.ts`; keep integration checks aligned with that export. Public questions, including an optional `code` preview, are strict-schema checked and deep-scanned. The scan matches keys, not string values, so a snippet that mentions these names is not a leak. Metadata/instruction strings may describe private schema field names without carrying an answer. Generation tasks expose existing stems only; save responses do not echo questions. After submission, only the just-answered question's reveal contains correctness, explanation and refs; `next` must retain the public shape. In elicitation mode, accepted answers are submissions inside `start_quiz`, so their later text reveals are post-answer data.
@@ -278,6 +282,6 @@ There are deliberate private-data locations: shared question JSON contains keys,
 
 ## Snapshot maintenance and review
 
-Run the contract E2E test against the built local server. It compares actual tool names and input/output schemas with `tools.snapshot.json`; deletion, renaming, required-argument additions, output-field changes and other schema drift fail the comparison. Set `UPDATE_CONTRACT=1` for an intentional refresh, or use `pnpm e2e:update-contract`. Review the generated diff and update this document with any changed response semantics before accepting a new baseline. Updating a snapshot accepts compatibility changes; it does not establish that an Orchestea client already supports them. The schema snapshot does not replace response, happy-path, storage and leak tests; `test/code-preview-leak.test.ts` covers the `code` preview end to end.
+Run the contract E2E test against the built local server. It compares the actual server instructions and each tool's name, description and input/output schemas with `tools.snapshot.json`; deletion, renaming, required-argument additions, output-field changes and other schema drift fail the comparison. Set `UPDATE_CONTRACT=1` for an intentional refresh, or use `pnpm e2e:update-contract`. Review the generated diff and update this document with any changed response semantics before accepting a new baseline. Updating a snapshot accepts compatibility changes; it does not establish that an Orchestea client already supports them. The schema snapshot does not replace response, happy-path, storage and leak tests; `test/code-preview-leak.test.ts` covers the `code` preview and the reveal excerpts end to end over MCP and the CLI.
 
 Implementation references: `packages/mcp/src/server.ts`, `packages/mcp/src/schemas.ts`, `packages/mcp/src/context.ts`, `packages/mcp/src/tools/`, `packages/core/src/ops/quiz.ts`, `packages/core/src/quiz/views.ts`, `packages/core/src/generate/{schema,save,validate}.ts`, and `packages/core/src/store/paths.ts`. `PLAN.md` §6 defines the answer-isolation promise; current strict schemas define the actual wire fields.

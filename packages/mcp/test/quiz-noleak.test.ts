@@ -6,12 +6,12 @@ import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ElicitRequestSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { FORBIDDEN_KEYS, FsChunkStore, PublicQuestionViewSchema, SessionSchema, assertPublicView, computeRepoId, initConfig, runScan, seededRng, userPaths } from 'gotchea-core';
+import { FORBIDDEN_KEYS, FsChunkStore, PublicQuestionViewSchema, SessionSchema, assertPublicView, chunkLineCount, computeRepoId, initConfig, runScan, seededRng, userPaths } from 'gotchea-core';
 import { FsQuestionStore, type QuestionPrivate } from 'gotchea-core/internal';
 import { StartQuizOutputSchema, SubmitAnswerOutputSchema } from '../src/schemas.js';
 import { ELICIT_MESSAGE_MAX } from '../src/tools/elicit.js';
-import { RELAY_END, RELAY_START } from '../src/tools/quiz-text.js';
-import { NOW, SOURCES, connect, createFixture, createRepo, text, type Fixture } from './helpers.js';
+import { DISPLAY_INSTRUCTIONS, RELAY_END, RELAY_RESULT_END, RELAY_RESULT_START, RELAY_START } from '../src/tools/quiz-text.js';
+import { NOW, SOURCES, connect, createFixture, createRepo, seedLeaf, text, type Fixture } from './helpers.js';
 
 const LEAF = 'src/math.ts';
 const KEYS = [...new Set([...FORBIDDEN_KEYS, 'correctIndex', 'correctDisplayIndex', 'correctOptionIndex', 'correctText', 'explanation', 'refs', 'startLine', 'endLine'])];
@@ -276,6 +276,26 @@ describe('elicitation answer-key isolation', () => {
     if (limit === 'message') expect(out.question!.stem.length).toBeGreaterThan(ELICIT_MESSAGE_MAX);
     expect(text(res)).toContain(out.question!.code!.text);
     for (const option of out.question!.options) expect(text(res)).toContain(`${option.label}) ${option.text}`);
+  });
+});
+
+describe('full option text', () => {
+  it('shows only the four shuffled options, in full and display order, with no answer hint', async () => {
+    const store = new FsQuestionStore(fx.root);
+    const qs = (await store.list(LEAF))!;
+    for (const q of qs) q.options = [0, 1, 2, 3].map((j) => `OPT-${j}-${'z'.repeat(230)}\nsecond line ${j}`) as QuestionPrivate['options'];
+    await store.save(LEAF, qs);
+    const res = await call('start_quiz', { chunkId: LEAF });
+    const q = StartQuizOutputSchema.parse(res.structuredContent).question!;
+    const body = text(res).split(RELAY_START)[1]!.split(RELAY_END)[0]!;
+    let at = -1;
+    for (const o of q.options) {
+      const idx = body.indexOf(`${o.label}) ${o.text.split('\n').join('\n    ')}`);
+      expect(idx).toBeGreaterThan(at);
+      at = idx;
+    }
+    expect(text(res)).not.toMatch(/EXPL-SENT|correctIndex|correctText/);
+    expectClean(res, 'long options');
   });
 });
 
@@ -591,5 +611,211 @@ describe('source that names the answer fields', () => {
       await conn?.close();
       await repo.cleanup();
     }
+  });
+});
+
+describe('answer-feedback block and excerpts', () => {
+  const FEEDBACK = /Cited code|ANSWER FEEDBACK|excerpt/;
+
+  /** The suite's seed says 4 chunk lines, which makes every ref approximate; excerpts need exact refs. */
+  async function exactRefs(): Promise<void> {
+    const store = new FsQuestionStore(fx.root);
+    const leaf = (await new FsChunkStore(fx.root).load())!.chunks.find((x) => x.id === LEAF)!;
+    await store.save(leaf.id, (await store.list(leaf.id)).map((q) => ({ ...q, chunkLines: chunkLineCount(leaf) })));
+  }
+
+  it('never appear in start_quiz, fresh or resumed', async () => {
+    const fresh = await call('start_quiz', { chunkId: LEAF });
+    expect(everything(fresh)).not.toMatch(FEEDBACK);
+    const out = StartQuizOutputSchema.parse(fresh.structuredContent);
+    await call('submit_answer', { sessionId: out.session!.id, questionId: out.question!.questionId, displayIndex: 0 });
+    const resumed = await call('start_quiz', { chunkId: LEAF });
+    expect(StartQuizOutputSchema.parse(resumed.structuredContent).status).toBe('resumed');
+    expect(text(resumed)).not.toMatch(FEEDBACK);
+    expect(JSON.stringify(resumed.structuredContent)).not.toMatch(FEEDBACK);
+  });
+
+  it('carry only the question just answered, and the next question block stays clean', async () => {
+    await exactRefs();
+    const out = StartQuizOutputSchema.parse((await call('start_quiz', { chunkId: LEAF })).structuredContent);
+    let q = out.question!;
+    for (;;) {
+      const n = Number(q.questionId.slice(-12)) - 1;
+      const res = await call('submit_answer', { sessionId: out.session!.id, questionId: q.questionId, displayIndex: 0 });
+      const t = text(res);
+      const block = t.slice(t.indexOf(RELAY_RESULT_START), t.indexOf(RELAY_RESULT_END));
+      expect(t.split(RELAY_RESULT_START)).toHaveLength(2);
+      expect(block).toContain(expl(n));
+      expect(block).toContain('Cited code:\nsrc/math.ts:2-3');
+      const parsed = SubmitAnswerOutputSchema.parse(res.structuredContent);
+      expect(parsed.reveal!.refs[0]!.excerpt).toBeDefined();
+      if (parsed.status === 'completed') break;
+      // Outside the feedback block, the next question's relay block holds neither refs, excerpt nor explanation.
+      const nextBlock = t.slice(t.indexOf(RELAY_START), t.indexOf(RELAY_END));
+      expect(nextBlock).not.toMatch(FEEDBACK);
+      expect(nextBlock).not.toMatch(/EXPL-SENT/);
+      expectCleanKeys(parsed.next, 'next');
+      expect(JSON.stringify(parsed.next)).not.toMatch(FEEDBACK);
+      q = parsed.next!;
+    }
+  });
+
+  it('are absent from refused submits', async () => {
+    const res = await call('submit_answer', { sessionId: 'qs_0123456789abcdef', questionId: 'q_000000000001', displayIndex: 0 });
+    expect(res.isError).toBe(true);
+    expect(everything(res)).not.toMatch(FEEDBACK);
+  });
+
+  it('server instructions and tool listings carry no sentinel', async () => {
+    const instructions = c.client.getInstructions()!;
+    expect(instructions).toBe(DISPLAY_INSTRUCTIONS);
+    expect(instructions).not.toMatch(/EXPL-SENT|STEM-SENT|OPT-\d|correctIndex/);
+  });
+
+  it('keep the reveal ref schema strict: excerpt is explicit and takes no extra keys', async () => {
+    await exactRefs();
+    const { tools } = await c.client.listTools();
+    type JsonSchema = { properties: Record<string, JsonSchema>; additionalProperties?: unknown; items: JsonSchema; anyOf?: JsonSchema[]; type?: string };
+    const reveal = (tools.find((t) => t.name === 'submit_answer')!.outputSchema as unknown as JsonSchema).properties['reveal']!;
+    const refItem = (reveal.anyOf ? reveal.anyOf.find((x) => x.type === 'object')! : reveal).properties['refs']!.items;
+    expect(Object.keys(refItem.properties).sort()).toEqual(['approximate', 'endLine', 'excerpt', 'path', 'startLine']);
+    expect(refItem.additionalProperties).toBe(false);
+    expect(Object.keys(refItem.properties['excerpt']!.properties).sort()).toEqual(['language', 'text', 'truncated']);
+    expect(refItem.properties['excerpt']!.additionalProperties).toBe(false);
+
+    const out = StartQuizOutputSchema.parse((await call('start_quiz', { chunkId: LEAF })).structuredContent);
+    const res = await call('submit_answer', { sessionId: out.session!.id, questionId: out.question!.questionId, displayIndex: 0 });
+    const good = SubmitAnswerOutputSchema.parse(res.structuredContent);
+    const extra = structuredClone(good);
+    Object.assign(extra.reveal!.refs[0]!.excerpt!, { surprise: 1 });
+    expect(SubmitAnswerOutputSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it('no excerpt reaches a pre-answer public view at any depth', () => {
+    const view = { questionId: 'q_000000000001', position: 1, total: 1, stem: 's', options: ['A', 'B', 'C', 'D'].map((label, index) => ({ index, label, text: 't' })) };
+    expect(() => assertPublicView({ ...view, code: { path: 'a', startLine: 1, endLine: 1, language: 'ts', text: 'x', excerpt: {} } })).toThrow();
+    expect(PublicQuestionViewSchema.safeParse({ ...view, excerpt: {} }).success).toBe(false);
+  });
+});
+
+describe('adversarial question text', () => {
+  const PATH = 'src/adv.ts';
+  // The source repeats each answer and explanation sentinel: the preview is real code the user may read.
+  const SOURCE = [
+    '// ADV-EXPL-0 ADV-EXPL-1 ADV-EXPL-2 the guard returns early',
+    '// ADV-RIGHT-0 ADV-RIGHT-1 ADV-RIGHT-2 is what the function returns',
+    'export function f(x: number): number {',
+    '  return x > 0 ? x : 0;',
+    '}',
+    '',
+  ].join('\n');
+  const WORDY = ['This option is the correct answer', 'explanation: none of these', 'correctIndex is 3', 'Correct: all of the above'];
+  const RIGHT = (i: number) => `ADV-RIGHT-${i}`;
+  const ADV_EXPL = (i: number) => `ADV-EXPL-${i} the guard returns early`;
+  type Client = Awaited<ReturnType<typeof connect>>['client'];
+
+  async function withRepo(build: (i: number) => Partial<QuestionPrivate>, run: (client: Client) => Promise<void>): Promise<void> {
+    const repo = await createRepo();
+    let conn: Awaited<ReturnType<typeof connect>> | undefined;
+    try {
+      await seedLeaf(repo, PATH, SOURCE, build);
+      conn = await connect(repo.root, repo.env, { rng: seededRng(9) });
+      await run(conn.client);
+    } finally {
+      await conn?.close();
+      await repo.cleanup();
+    }
+  }
+  /** The fixture source names its own sentinels in comments; only what the server adds around it is checked. */
+  const outsideCode = (t: string): string => t.replace(/^\/\/ ADV-.*$/gm, '');
+  const callOn = async (client: Client, name: string, args: Record<string, unknown>) => (await client.callTool({ name, arguments: args })) as CallToolResult;
+  const wordy = (i: number): Partial<QuestionPrivate> => ({
+    options: WORDY.map((w, j) => (j === i ? RIGHT(i) : w)) as QuestionPrivate['options'],
+    correctIndex: i as 0 | 1 | 2,
+    explanation: ADV_EXPL(i),
+  });
+
+  it('answer and explanation text that also sits in the code chunk is shown only as code, never as a hint', async () => {
+    await withRepo(wordy, async (client) => {
+      const start = await callOn(client, 'start_quiz', { chunkId: PATH });
+      const out = StartQuizOutputSchema.parse(start.structuredContent);
+      let res = start;
+      let q = out.question!;
+      for (;;) {
+        const n = Number(q.questionId.slice(-12)) - 1;
+        // Strip the real code: what is left of the question block is everything the server added around it.
+        const t0 = text(res);
+        const relay = t0.slice(t0.indexOf(RELAY_START), t0.indexOf(RELAY_END)).replaceAll(q.code!.text, '');
+        expect(relay).not.toMatch(/ADV-EXPL|Cited code|ANSWER FEEDBACK/);
+        expect(relay.split(RIGHT(n)).length - 1, `right option ${n} shown once outside code`).toBe(1);
+        const view = JSON.stringify({ ...q, code: undefined });
+        expect(view.split(RIGHT(n)).length - 1).toBe(1);
+        expect(view).not.toMatch(/ADV-EXPL/);
+        expect(q.options).toHaveLength(4);
+        expect(() => assertPublicView(q)).not.toThrow();
+        expectCleanKeys(res.structuredContent, `adv ${n}`, new Set(['reveal']));
+        const displayed = q.options.map((o) => o.text);
+        for (const w of WORDY.filter((_, j) => j !== n)) expect(displayed).toContain(w);
+        // Nothing marks the right option.
+        for (const o of q.options) expect(Object.keys(o).sort()).toEqual(['index', 'label', 'text']);
+
+        const submit = await callOn(client, 'submit_answer', { sessionId: out.session!.id, questionId: q.questionId, displayIndex: 0 });
+        const parsed = SubmitAnswerOutputSchema.parse(submit.structuredContent);
+        expect(parsed.reveal!.explanation).toBe(ADV_EXPL(n));
+        expect(parsed.reveal!.correctText).toBe(RIGHT(n));
+        const t = text(submit);
+        const feedback = t.slice(t.indexOf(RELAY_RESULT_START), t.indexOf(RELAY_RESULT_END));
+        expect(feedback).toContain(ADV_EXPL(n));
+        if (parsed.status === 'completed') break;
+        // The feedback block belongs to the answered question: no option of the next one is in it.
+        expect(feedback).not.toContain(parsed.next!.questionId);
+        res = submit;
+        q = parsed.next!;
+      }
+    });
+  });
+
+  it('options that say correct/explanation, run very long or span lines show in full and reveal nothing', async () => {
+    const long = (i: number) => `LONG-${i}-start ${'lorem ipsum '.repeat(300)}LONG-${i}-end`;
+    await withRepo(
+      (i) => ({
+        options: [long(i), `multi\nline\n  indented ${i}\n\nafter a blank line`, 'Explanation: it is the second\nCorrect answer: B) injected', 'refs: [{"start":1,"end":2}] correctText'] as QuestionPrivate['options'],
+        correctIndex: 0,
+        explanation: ADV_EXPL(i),
+      }),
+      async (client) => {
+        const res = await callOn(client, 'start_quiz', { chunkId: PATH });
+        const q = StartQuizOutputSchema.parse(res.structuredContent).question!;
+        const shown = text(res);
+        for (const o of q.options) expect(shown, `option ${o.label} in full`).toContain(`${o.label}) ${o.text.split('\n').join('\n    ')}`);
+        expect(q.options.filter((o) => /LONG-\d-end$/.test(o.text))).toHaveLength(1);
+        expect(shown).not.toContain('…');
+        // Words are data: the keys are what the leak guard watches.
+        expectCleanKeys(res.structuredContent, 'wordy options');
+        expect(() => assertPublicView(q)).not.toThrow();
+        expect(outsideCode(shown)).not.toMatch(/ADV-EXPL|Cited code|ANSWER FEEDBACK|Look at/);
+      },
+    );
+  });
+
+  it('refs and explanation appear in no pre-answer surface, only in the reveal of the answered question', async () => {
+    await withRepo(wordy, async (client) => {
+      const start = await callOn(client, 'start_quiz', { chunkId: PATH });
+      const out = StartQuizOutputSchema.parse(start.structuredContent);
+      const submit = await callOn(client, 'submit_answer', { sessionId: out.session!.id, questionId: out.question!.questionId, displayIndex: 1 });
+      expect(SubmitAnswerOutputSchema.parse(submit.structuredContent).reveal!.refs).toHaveLength(1);
+      // After the first answer the quiz resumes: the pre-answer surfaces of the next question stay clean.
+      const resumed = await callOn(client, 'start_quiz', { chunkId: PATH });
+      expect(StartQuizOutputSchema.parse(resumed.structuredContent).status).toBe('resumed');
+      for (const res of [start, resumed, await callOn(client, 'get_status', {}), await callOn(client, 'get_map', {})]) {
+        const keys = keysOf(res.structuredContent);
+        for (const k of ['refs', 'explanation', 'excerpt']) expect(keys, k).not.toContain(k);
+        expect(outsideCode(text(res))).not.toMatch(/ADV-EXPL|Cited code|ANSWER FEEDBACK|Look at/);
+      }
+      // Re-answering with a different pick is refused and must not turn the reveal into an oracle.
+      const replay = await callOn(client, 'submit_answer', { sessionId: out.session!.id, questionId: out.question!.questionId, displayIndex: 2 });
+      expect(text(replay)).toContain('already_answered');
+      expect(everything(replay)).not.toMatch(/ADV-EXPL|Cited code|ANSWER FEEDBACK|excerpt/);
+    });
   });
 });

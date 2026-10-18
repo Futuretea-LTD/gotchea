@@ -4,7 +4,7 @@ import { INIT_MESSAGE, SCAN_MESSAGE, guarded, textResult, type ToolContext } fro
 import { messagesFor } from '../i18n.js';
 import { START_QUIZ_REASONS, StartQuizInputSchema, StartQuizOutputSchema, type StartQuizOut } from '../schemas.js';
 import { clientCanElicit, elicitQuiz } from './elicit.js';
-import { START_QUIZ_DESCRIPTION, resultText, revealText, startRefusal, startedText, submitRefusal } from './quiz-text.js';
+import { START_QUIZ_DESCRIPTION, resultText, revealBlock, startRefusal, startedText, submitRefusal } from './quiz-text.js';
 
 const EMPTY = { status: null, reason: null, session: null, question: null, result: null } as const;
 
@@ -44,7 +44,7 @@ export function registerStartQuiz(server: McpServer, ctx: ToolContext): void {
             return textResult('Quiz cancelled. Nothing was scored.', { ...base, ...EMPTY, status: 'cancelled', session });
           }
           if (el.kind === 'completed') {
-            const text = [...el.reveals.map((r, i) => `Question ${session.answered + i + 1}:\n${revealText(r)}`), resultText(el.result, config.score.greenAt)].join('\n\n');
+            const text = [...el.reveals.map((r, i) => `Question ${session.answered + i + 1}:\n${revealBlock(r, messages)}`), resultText(el.result, config.score.greenAt)].join('\n\n');
             const done = { ...session, answered: session.total };
             return textResult(text, { ...base, ...EMPTY, status: 'completed', session: done, result: el.result });
           }
@@ -57,7 +57,7 @@ export function registerStartQuiz(server: McpServer, ctx: ToolContext): void {
           if (el.reveals.length > 0) {
             status = 'resumed';
             session = { ...session, answered: el.reveals.length };
-            prefix = `${el.reveals.map(revealText).join('\n\n')}\n\n`;
+            prefix = `${el.reveals.map((r) => revealBlock(r, messages)).join('\n\n')}\n\n`;
           }
         }
         // Core already checks the view; checked again here because this is where it leaves the process.
