@@ -1,5 +1,26 @@
 # gotchea
 
+## 0.2.0
+
+### Minor Changes
+
+- e9ff012: - **Quiz questions show the code they ask about.** Each question can carry an optional `code` preview (`path`, `startLine`, `endLine`, `language`, `text`, `truncated?`) with the chunk's current source, up to 60 lines. It is left out when the file changed since the last `scan`, so you never see code that no longer matches the question. It carries nothing from the answer key. With the code on screen the quiz is open book.
+  - **New config key `quiz.showCode`** (default `true`) turns the preview on or off for every interface.
+  - **`gotchea quiz`** prints the preview above each question as a numbered, lightly highlighted block (plain when colours are off). `--code` / `--no-code` override `quiz.showCode` for one run.
+  - **MCP:** `start_quiz` and `submit_answer` return `code` on `question` / `next` and render it as a fenced block above the stem, with a header that follows `questions.lang`. Both accept an optional `includeCode`: `start_quiz` defaults to `quiz.showCode`, and the session keeps that value, so `submit_answer` defaults to it. The question text is wrapped in a `SHOW TO USER VERBATIM` block, and tool descriptions tell the agent to show the cited code and every option in full before asking for the user's answer. Elicitation forms put full options and plain numbered code lines in the message, use short A–D choices, and fall back to the text flow for long messages or code. Form elicitation is now opt-in: `GOTCHEA_MCP_ELICIT=on` (or `auto`).
+  - Control and bidi characters in code previews, and in the question text, explanations, paths and chunk titles that `gotchea quiz` prints and that the MCP quiz tools put in their text (and elicitation prompts), are shown as visible placeholders, so they can't move the cursor or make code read differently than it runs. `structuredContent` keeps the stored text.
+  - `gotchea serve` has no quiz route; its API leak guard now also rejects a `code` key.
+
+### Patch Changes
+
+- 0b99e90: - **MCP answer feedback shows the cited code.** `submit_answer` reveals now carry an optional `excerpt` (`language`, `text`, `truncated?`) per reference: the cited lines, sanitized, up to 15 per reference and 30 per reveal. It is left out when previews are off, the file changed since the last `scan` or the reference is approximate, and it only appears after the answer was recorded. The text result wraps each reveal in `SHOW ANSWER FEEDBACK TO USER VERBATIM` markers, separate from the question markers, and the server sends its display rules as MCP `instructions`.
+  - Elicitation choice titles are `A) ` plus at most 24 characters of the option; the form message and the text flow carry every option in full. Continuation lines of options, correct answers and explanations are indented so a code fence inside them can't swallow the rest of the message.
+  - `excerpt` joins the forbidden answer-key keys for pre-answer values and the `serve` API guard.
+- Updated dependencies [e9ff012]
+- Updated dependencies [0b99e90]
+  - gotchea-core@0.2.0
+  - gotchea-mcp@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes
